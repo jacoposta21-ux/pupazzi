@@ -4,9 +4,6 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
     <title>Stuffed!</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="app">
@@ -16,7 +13,7 @@
       <!-- In-game HUD -->
       <div id="hud" class="hidden">
         <div class="hud-top-left">
-          <div class="pill cash">💰 <span id="hud-cash">$0</span></div>
+          <div class="pill cash" id="hud-cash-pill">💰 <span id="hud-cash">$0</span></div>
           <div class="pill"><span id="hud-day"></span></div>
           <div class="quota">
             <div class="quota-label" id="hud-quota-label"></div>
@@ -34,6 +31,7 @@
         <div id="crosshair"><div class="dot"></div></div>
         <div id="hitmarker"></div>
         <div id="prompt"></div>
+        <div id="tutorial" class="hidden"><div id="tutorial-text"></div><div id="tutorial-sub" class="sub"></div></div>
         <div class="hud-bottom-left"><div class="pill" id="hud-carry"></div></div>
         <div class="hud-bottom-right"><div class="ammo" id="hud-ammo"></div></div>
         <div id="toast"></div>
@@ -61,6 +59,12 @@
             <button id="btn-continue" class="btn primary hidden"></button>
             <button id="btn-new" class="btn" data-i18n="newGame"></button>
           </div>
+          <p id="menu-best" class="best hidden"></p>
+          <div class="settings-row">
+            <button class="btn small set-sound"></button>
+            <button class="btn small set-music"></button>
+            <button class="btn small set-quality"></button>
+          </div>
           <div class="controls">
             <h3 data-i18n="controlsTitle"></h3>
             <p data-i18n="ctrlMove" class="desktop-only"></p>
@@ -81,7 +85,11 @@
             <span data-i18n="sensitivity"></span>
             <input id="sens" type="range" min="0.3" max="2.5" step="0.05" />
           </label>
-          <button id="btn-sound" class="btn small"></button>
+          <div class="settings-row">
+            <button class="btn small set-sound"></button>
+            <button class="btn small set-music"></button>
+            <button class="btn small set-quality"></button>
+          </div>
           <button id="btn-quit" class="btn small ghost" data-i18n="quitMenu"></button>
         </div>
       </div>

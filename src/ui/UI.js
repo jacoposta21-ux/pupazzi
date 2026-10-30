@@ -33,11 +33,28 @@ export class UI {
     click('btn-next', () => game.nextDay());
     click('btn-double', () => game.doubleEarnings());
     click('btn-touch-pause', () => game.pause());
-    click('btn-sound', () => {
+    const each = (cls, fn) =>
+      document.querySelectorAll(cls).forEach((el) =>
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          Audio.unlock();
+          fn();
+          Audio.play('click');
+          game.saveSettings();
+          this.refreshSettings();
+        }),
+      );
+    each('.set-sound', () => {
       game.settings.muted = !game.settings.muted;
       Audio.setMuted(game.settings.muted);
-      game.saveSettings();
-      this.refreshSound();
+    });
+    each('.set-music', () => {
+      game.settings.music = !game.settings.music;
+      Audio.setMusicMuted(!game.settings.music);
+    });
+    each('.set-quality', () => {
+      const order = ['low', 'medium', 'high'];
+      game.setQuality(order[(order.indexOf(game.settings.quality) + 1) % order.length]);
     });
     // Clicking anywhere on the pause backdrop also resumes (desktop pointer lock needs a click).
     $('pause').addEventListener('click', (e) => {
@@ -49,11 +66,16 @@ export class UI {
       game.settings.sens = parseFloat(sens.value);
       game.saveSettings();
     });
-    this.refreshSound();
+    this.refreshSettings();
+    this.shownCash = 0;
   }
 
-  refreshSound() {
-    $('btn-sound').textContent = t(this.game.settings.muted ? 'soundOff' : 'soundOn');
+  refreshSettings() {
+    const st = this.game.settings;
+    const setAll = (cls, text) => document.querySelectorAll(cls).forEach((el) => (el.textContent = text));
+    setAll('.set-sound', t(st.muted ? 'soundOff' : 'soundOn'));
+    setAll('.set-music', t(st.music ? 'musicOn' : 'musicOff'));
+    setAll('.set-quality', t('quality', { q: t('q_' + st.quality) }));
   }
 
   show(id, visible = true) {
@@ -68,6 +90,9 @@ export class UI {
     for (const id of ['hud', 'pause', 'dayend', 'touch-ui']) this.show(id, false);
     this.show('menu');
     const cont = $('btn-continue');
+    const best = save?.totals?.bestDay || 0;
+    $('menu-best').textContent = t('bestDay', { v: best });
+    $('menu-best').classList.toggle('hidden', !best);
     if (save && save.day > 1) {
       cont.textContent = t('continue', { day: save.day });
       cont.classList.remove('hidden');
@@ -100,7 +125,17 @@ export class UI {
     const g = this.game;
     const st = g.stats;
     const p = g.player;
-    this.set('hud-cash', `$${g.data.cash}`);
+    // cash counts up smoothly and bumps when it grows
+    const target = g.data.cash;
+    if (target > this.shownCash) {
+      this.shownCash = Math.min(target, this.shownCash + Math.max(1, Math.ceil((target - this.shownCash) * 0.15)));
+      const pill = $('hud-cash-pill');
+      if (!pill.classList.contains('bump')) {
+        pill.classList.add('bump');
+        setTimeout(() => pill.classList.remove('bump'), 250);
+      }
+    } else this.shownCash = target;
+    this.set('hud-cash', `$${this.shownCash}`);
     this.set('hud-day', t('day', { n: g.data.day }));
     this.set('hud-quota-label', t('quota', { cur: g.dayStats.earned, goal: g.quota }));
     const fill = $('hud-quota-fill');
@@ -137,12 +172,26 @@ export class UI {
     $('crosshair').classList.toggle('target', !!p.aimed || p.aimingAtStuffer);
   }
 
-  hitmarker(ko) {
+  hitmarker(ko, armor = false) {
     const el = $('hitmarker');
     el.classList.toggle('ko', ko);
+    el.classList.toggle('armor', armor);
     el.classList.add('show');
     clearTimeout(this.hmTimer);
     this.hmTimer = setTimeout(() => el.classList.remove('show'), 90);
+  }
+
+  tutorial(step) {
+    this.show('tutorial', !!step);
+    if (!step) return;
+    const touch = this.game.isTouch;
+    const keys = { shoot: touch ? '' : '[Click]', grab: touch ? '✋' : '[E]', throw: touch ? '🎯' : '[F]' };
+    $('tutorial-text').textContent = t('tut_' + step, { key: keys[step] ?? '' });
+    $('tutorial-sub').textContent = this.game.tutorial.holdsClock ? t('tutClock') : '';
+    const el = $('tutorial');
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
   }
 
   toast(key, vars) {
@@ -194,17 +243,28 @@ export class UI {
     this.show('pause', false);
     this.show('dayend');
     $('de-title').textContent = t('dayComplete', { n: summary.day });
-    const stat = (v, k) => `<div class="stat"><b>${v}</b><span>${t(k)}</span></div>`;
+    const stat = (v, k, pre = '') => `<div class="stat"><b data-count="${v}" data-pre="${pre}">${pre}0</b><span>${t(k)}</span></div>`;
     $('de-summary').innerHTML =
       stat(summary.stuffed, 'statStuffed') +
       stat(summary.knockouts, 'statKO') +
-      stat(`$${summary.shipped}`, 'statEarned') +
-      stat(`$${summary.flushed}`, 'statFlush');
+      stat(summary.shipped, 'statEarned', '$') +
+      stat(summary.flushed, 'statFlush', '$');
+    // count-up animation
+    const els = [...$('de-summary').querySelectorAll('[data-count]')];
+    const t0 = performance.now();
+    const tick = () => {
+      const k = Math.min(1, (performance.now() - t0) / 900);
+      const e = 1 - Math.pow(1 - k, 3);
+      for (const el of els) el.textContent = el.dataset.pre + Math.round(el.dataset.count * e);
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
     const q = $('de-quota');
     q.className = 'quota-result ' + (summary.quotaMet ? 'ok' : 'miss');
     q.textContent = summary.quotaMet
       ? t('quotaMet', { b: summary.bonus })
       : t('quotaMissed', { cur: summary.earned, goal: summary.quota });
+    if (summary.record) q.textContent += ' · ' + t('newRecord');
     $('btn-double').classList.toggle('hidden', !summary.canDouble);
     $('btn-double').disabled = false;
     $('btn-double').textContent = t('doubleAd');
@@ -229,13 +289,15 @@ export class UI {
       const lvl = g.data.levels[u.id] || 0;
       const maxed = lvl >= u.max;
       const cost = upgradeCost(u, lvl);
+      const locked = u.requires && !(g.data.levels[u.requires] > 0);
       const btn = document.createElement('button');
       btn.className = 'upg';
-      btn.disabled = maxed || cost > g.data.cash;
+      btn.disabled = maxed || locked || cost > g.data.cash;
       if (!btn.disabled) btn.classList.add('affordable');
       btn.innerHTML = `
         <div class="name">${u.icon} ${t('u_' + u.id)}</div>
         <div class="desc">${t('d_' + u.id)}</div>
+        ${locked ? `<div class="req">${t('requires', { name: t('u_' + u.requires) })}</div>` : ''}
         <div class="row"><span>${t('lvl', { l: lvl, m: u.max })}</span>
         <span class="cost">${maxed ? t('max') : '$' + cost}</span></div>`;
       btn.addEventListener('click', () => {

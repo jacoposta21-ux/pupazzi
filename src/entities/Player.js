@@ -2,17 +2,21 @@
 import * as THREE from 'three';
 import { GRAVITY, LAYOUT } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
+import { Viewmodel } from './Viewmodel.js';
 
 const EYE = 1.6;
 const RADIUS = 0.4;
 const JUMP_V = 6.5;
 const GRAB_RANGE = 3.2;
 const THROW_ASSIST_RANGE = 10;
+const BASE_FOV = 74;
+const SPRINT_FOV = 82;
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const CENTER = new THREE.Vector2(0, 0);
+const KO_COLORS = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0xffffff];
 
 export class Player {
   constructor(game) {
@@ -27,13 +31,19 @@ export class Player {
     this.ammo = 0;
     this.reloadTimer = 0;
     this.cooldown = 0;
-    this.recoil = 0;
     this.bob = 0;
+    this.lastStep = 0;
+    this.kick = 0; // visual camera recoil
+    this.dip = 0; // landing dip
     this.aimed = null; // plushie under the crosshair within grab range
     this.aimingAtStuffer = false;
     this.raycaster = new THREE.Raycaster();
-    this.buildViewmodel();
+    this.vm = new Viewmodel(this.camera);
     this.respawn();
+  }
+
+  get carryAnchor() {
+    return this.vm.carryAnchor;
   }
 
   respawn() {
@@ -49,39 +59,8 @@ export class Player {
     this.reloadTimer = 0;
   }
 
-  buildViewmodel() {
-    this.vm = new THREE.Group();
-    this.camera.add(this.vm);
-
-    this.gun = new THREE.Group();
-    this.gun.position.set(0.24, -0.22, -0.52);
-    this.gun.scale.setScalar(0.42);
-    const orange = new THREE.MeshStandardMaterial({ color: 0xff8a3d, roughness: 0.5 });
-    const blue = new THREE.MeshStandardMaterial({ color: 0x3f73c4, roughness: 0.5 });
-    const tank = new THREE.MeshStandardMaterial({ color: 0x9df2ff, roughness: 0.2, transparent: true, opacity: 0.85 });
-    const add = (geo, mat, x, y, z, rx = 0) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.rotation.x = rx;
-      this.gun.add(m);
-      return m;
-    };
-    add(new THREE.BoxGeometry(0.14, 0.16, 0.42), orange, 0, 0, 0);
-    add(new THREE.CylinderGeometry(0.045, 0.06, 0.26, 12), blue, 0, 0.01, -0.32, Math.PI / 2);
-    add(new THREE.BoxGeometry(0.08, 0.2, 0.1), blue, 0, -0.15, 0.1, 0.3);
-    this.tankMesh = add(new THREE.SphereGeometry(0.09, 12, 8), tank, 0, 0.14, 0.05);
-    this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, 0.01, -0.47);
-    this.gun.add(this.muzzle);
-    this.vm.add(this.gun);
-
-    this.carryAnchor = new THREE.Group();
-    this.carryAnchor.position.set(-0.42, -0.62, -1.0);
-    this.vm.add(this.carryAnchor);
-  }
-
   setViewmodelVisible(v) {
-    this.vm.visible = v;
+    this.vm.root.visible = v;
   }
 
   get forward() {
@@ -104,13 +83,13 @@ export class Player {
       mv.x /= len;
       mv.y /= len;
     }
-    const speed = stats.moveSpeed * (input.sprint ? 1.45 : 1) * (1 - 0.03 * this.carried.length);
+    const sprinting = input.sprint && mv.y > 0.3;
+    const speed = stats.moveSpeed * (sprinting ? 1.45 : 1) * (1 - 0.03 * this.carried.length);
     _fwd.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     _right.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const wx = (_fwd.x * mv.y + _right.x * mv.x) * speed;
     const wz = (_fwd.z * mv.y + _right.z * mv.x) * speed;
-    const accel = this.onGround ? 14 : 4;
-    const k = Math.min(1, accel * dt);
+    const k = Math.min(1, (this.onGround ? 14 : 4) * dt);
     this.vel.x += (wx - this.vel.x) * k;
     this.vel.z += (wz - this.vel.z) * k;
 
@@ -119,24 +98,44 @@ export class Player {
       this.onGround = false;
       Audio.play('jump');
     }
+    const fallSpeed = -this.vel.y;
     this.vel.y -= GRAVITY * dt;
     this.pos.addScaledVector(this.vel, dt);
 
     const colliders = this.game.colliders;
     colliders.resolve(this.pos, RADIUS, this.pos.y + 0.3);
     const ground = colliders.groundHeight(this.pos, RADIUS, this.pos.y + 0.3);
+    const wasGround = this.onGround;
     if (this.pos.y <= ground) {
       this.pos.y = ground;
       this.vel.y = 0;
       this.onGround = true;
+      if (!wasGround && fallSpeed > 3) {
+        this.dip = Math.min(0.12, fallSpeed * 0.012);
+        Audio.play('land');
+      }
     } else this.onGround = this.pos.y - ground < 0.01;
 
     // --- Camera ---
-    const moving = Math.hypot(this.vel.x, this.vel.z);
-    if (this.onGround && moving > 0.5) this.bob += dt * moving * 1.9;
-    const bobY = Math.sin(this.bob * 2) * 0.04 * Math.min(1, moving / 5);
-    this.camera.position.set(this.pos.x, this.pos.y + EYE + bobY, this.pos.z);
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    const moving = Math.min(1, Math.hypot(this.vel.x, this.vel.z) / 5);
+    if (this.onGround && moving > 0.1) {
+      this.bob += dt * moving * (sprinting ? 12 : 9.5);
+      const stepIdx = Math.floor(this.bob / Math.PI);
+      if (stepIdx !== this.lastStep) {
+        this.lastStep = stepIdx;
+        Audio.play('step');
+      }
+    }
+    this.kick = Math.max(0, this.kick - dt * 0.25);
+    this.dip = Math.max(0, this.dip - dt * 0.4);
+    const bobY = Math.abs(Math.sin(this.bob)) * 0.045 * moving;
+    this.camera.position.set(this.pos.x, this.pos.y + EYE + bobY - this.dip, this.pos.z);
+    this.camera.rotation.set(this.pitch + this.kick, this.yaw, Math.sin(this.bob) * 0.006 * moving);
+    const fov = sprinting && moving > 0.5 ? SPRINT_FOV : BASE_FOV;
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 8);
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.updateMatrixWorld();
 
     // --- Blaster ---
@@ -156,7 +155,17 @@ export class Player {
     if (input.grabPressed) this.tryGrab();
     if (input.throwPressed) this.throwOne();
 
-    this.animateViewmodel(dt, Math.sin(this.bob) * Math.min(1, moving / 5));
+    this.vm.update({
+      dt,
+      bob: this.bob,
+      moving,
+      lookDX: dx,
+      lookDY: dy,
+      sprinting: sprinting && moving > 0.5,
+      reloading: this.reloadTimer > 0,
+      ammoFrac: this.ammo / stats.magSize,
+      carried: this.carried,
+    });
   }
 
   startReload() {
@@ -178,34 +187,52 @@ export class Player {
   }
 
   shoot() {
-    const stats = this.game.stats;
+    const game = this.game;
+    const stats = game.stats;
     this.ammo--;
     this.cooldown = stats.fireCooldown;
-    this.recoil = 1;
+    this.vm.kickRecoil();
+    this.kick = Math.min(0.05, this.kick + 0.012);
     Audio.play('shoot');
 
+    // aim from the true (un-kicked) view direction
+    this.camera.rotation.x = this.pitch;
+    this.camera.updateMatrixWorld();
     this.raycaster.setFromCamera(CENTER, this.camera);
     this.raycaster.far = 60;
     const wall = this.worldHitDistance();
-    const hits = this.raycaster.intersectObjects(this.game.plushies.hitTargets(), true);
-    const from = this.muzzle.getWorldPosition(_v);
+    const hits = this.raycaster.intersectObjects(game.plushies.hitTargets(), true);
+    const from = this.vm.muzzle.getWorldPosition(_v);
     let end;
-    const hit = hits.find((h) => h.distance < wall);
+    // knocked-out plushies lying around don't soak up shots
+    const hit = hits.find((h) => h.distance < wall && this.plushieFromObject(h.object)?.state !== 'ko');
     if (hit) {
       const p = this.plushieFromObject(hit.object);
       end = hit.point;
       if (p) {
-        const ko = p.takeHit(stats.damage, this.pos);
-        Audio.play(ko ? 'ko' : 'hit');
-        this.game.ui.hitmarker(ko);
-        this.game.particles.burst(hit.point, { count: ko ? 14 : 7, color: ko ? 0xffd23f : 0xffffff, speed: 2, size: 0.05 });
-        if (ko) this.game.bus.emit('plushieKO', p);
+        const result = p.takeHit(stats.damage, this.pos);
+        const ko = result === 'ko';
+        if (result !== 'none') game.ui.hitmarker(ko, result === 'armor');
+        if (ko) {
+          Audio.play('ko');
+          for (const c of KO_COLORS) game.particles.burst(hit.point, { count: 4, color: c, speed: 2.5, size: 0.05, up: 2.5 });
+          game.bus.emit('plushieKO', p);
+        } else if (result === 'armor') {
+          Audio.play('clang');
+          game.particles.burst(hit.point, { count: 6, color: 0xfff6c8, speed: 2.5, size: 0.03 });
+        } else if (result === 'armorBreak') {
+          Audio.play('armorBreak');
+          game.particles.burst(p.pos.clone().setY(1.2 * p.def.scale), { count: 14, color: 0xb8c0cc, speed: 3, size: 0.06, up: 3 });
+        } else if (result === 'hit') {
+          Audio.play('hit');
+          game.particles.burst(hit.point, { count: 7, color: 0xffffff, speed: 2, size: 0.05 });
+        }
       }
     } else {
       end = this.raycaster.ray.at(Math.min(wall, 60), _v2);
-      if (wall < 60) this.game.particles.burst(end, { count: 4, color: 0xffffff, speed: 1.2, size: 0.04, life: 0.4 });
+      if (wall < 60) game.particles.burst(end, { count: 4, color: 0xffffff, speed: 1.2, size: 0.04, life: 0.4 });
     }
-    this.game.particles.tracer(from, end);
+    game.particles.tracer(from, end);
     if (this.ammo === 0) this.startReload();
   }
 
@@ -247,7 +274,9 @@ export class Player {
       Audio.play('empty');
       return;
     }
+    this.game.particles.burst(p.pos.clone().setY(0.5), { count: 5, color: p.def.color, speed: 1, size: 0.05 });
     p.state = 'carried';
+    p.claimedBy = null;
     p.vel.set(0, 0, 0);
     p.mesh.removeFromParent();
     this.carryAnchor.add(p.mesh);
@@ -256,17 +285,9 @@ export class Player {
     p.lying = 0;
     p.stars.visible = false;
     this.carried.push(p);
-    this.layoutCarried();
+    this.vm.layoutCarried(this.carried);
+    this.vm.playGrab();
     Audio.play('grab');
-    this.game.particles.burst(p.pos, { count: 5, color: p.def.color, speed: 1, size: 0.05 });
-  }
-
-  layoutCarried() {
-    this.carried.forEach((p, i) => {
-      p.mesh.position.set(0, i * 0.3, 0);
-      p.mesh.rotation.set(0, 0.35, 0);
-      p.mesh.scale.setScalar(0.42 * p.def.scale);
-    });
   }
 
   // Ballistic velocity that lands in the hopper, or null if the Stuffer isn't roughly ahead.
@@ -298,33 +319,22 @@ export class Player {
     p.heading = this.yaw + Math.PI;
     this.game.scene.add(p.mesh);
     p.throwFrom(start, vel);
-    this.layoutCarried();
+    this.vm.layoutCarried(this.carried);
+    this.vm.playThrow();
     Audio.play('throw');
   }
 
-  // Drop everything carried in front of the player (used when leaving to the menu, etc.).
+  // Drop everything carried in front of the player (end of day, back to menu...).
   dropAll() {
     while (this.carried.length) {
       const p = this.carried.pop();
       p.mesh.removeFromParent();
       p.mesh.scale.setScalar(p.def.scale);
+      p.mesh.rotation.set(0, 0, 0);
       this.game.scene.add(p.mesh);
       p.pos.set(this.pos.x + (Math.random() - 0.5), 0, this.pos.z + (Math.random() - 0.5));
       p.state = 'idle';
       p.timer = 1;
     }
-  }
-
-  animateViewmodel(dt, sway) {
-    this.recoil = Math.max(0, this.recoil - dt * 8);
-    const reloading = this.reloadTimer > 0 ? 1 : 0;
-    this.gun.position.set(0.24 + sway * 0.012, -0.22 + Math.abs(sway) * 0.01 - reloading * 0.1, -0.52 + this.recoil * 0.05);
-    this.gun.rotation.x = this.recoil * 0.25 - reloading * 0.6;
-    const stats = this.game.stats;
-    this.tankMesh.scale.setScalar(0.4 + 0.6 * (this.ammo / stats.magSize));
-    this.carryAnchor.position.y = -0.62 - Math.abs(sway) * 0.03;
-    this.carried.forEach((p, i) => {
-      p.mesh.rotation.z = Math.sin(this.bob + i) * 0.08;
-    });
   }
 }

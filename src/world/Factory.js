@@ -24,12 +24,10 @@ export function buildFactory(scene, colliders, { shadows }) {
   const sun = new THREE.DirectionalLight(0xfff3e0, 1.8);
   sun.position.set(10, 22, 8);
   sun.target.position.set(0, 0, 4);
-  if (shadows) {
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 60 });
-    sun.shadow.bias = -0.0005;
-  }
+  sun.castShadow = shadows;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 60 });
+  sun.shadow.bias = -0.0005;
   scene.add(sun, sun.target);
 
   // --- Ground ---
@@ -151,5 +149,5 @@ export function buildFactory(scene, colliders, { shadows }) {
   sign('UNLOADING', '#2fb58a', 4, 1, D.x, 5.2, F.maxZ - 0.01, Math.PI);
   sign('SHIPPING', '#3f73c4', 3.2, 0.8, F.minX + 0.01, 3.1, LAYOUT.belt.z, Math.PI / 2);
 
-  return { solids };
+  return { solids, sun };
 }

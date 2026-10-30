@@ -25,6 +25,7 @@ function safe(fn) {
 
 export const Platform = {
   env: 'none',
+  adblock: false,
   onAdStart: null,
   onAdEnd: null,
 
@@ -36,6 +37,7 @@ export const Platform = {
       await SDK.init();
       this.env = SDK.environment;
       if (this.env !== 'disabled') sdk = SDK;
+      if (sdk) this.adblock = !!(await sdk.ad.hasAdblock());
     } catch (e) {
       console.warn('[Platform] SDK init failed', e);
     }
@@ -43,6 +45,11 @@ export const Platform = {
 
   get hasAds() {
     return !!sdk;
+  },
+
+  // Rewarded offers are only shown when an ad can actually play.
+  get canRewarded() {
+    return !!sdk && !this.adblock;
   },
 
   loadingStart: () => safe(() => sdk?.game.loadingStart()),

@@ -89,6 +89,7 @@ export class Stuffer {
     const spout = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
     spout.position.set(-w / 2 - 0.2, LAYOUT.belt.top + 0.45, 0);
     this.group.add(spout);
+    this.spoutPos = new THREE.Vector3(x - w / 2 - 0.3, LAYOUT.belt.top + 0.5, z);
 
     game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
   }
@@ -106,16 +107,19 @@ export class Stuffer {
     return stats.slots + stats.queueSize;
   }
 
-  tryAccept(plushie) {
+  tryAccept(plushie, { silent = false } = {}) {
     const stats = this.game.stats;
     if (this.queue.length + this.working.length >= this.capacity(stats)) {
-      Audio.play('reject');
-      this.game.ui.toast('machineFull');
+      if (!silent) {
+        Audio.play('reject');
+        this.game.ui.toast('machineFull');
+      }
       return false;
     }
     this.queue.push({ type: plushie.type, value: plushie.def.value });
     this.game.plushies.remove(plushie);
     this.shake = 0.4;
+    this.gulp = 1;
     this.game.particles.burst(this.hopperCenter, { count: 14, color: plushie.def.color, speed: 2.5, size: 0.08, up: 3 });
     this.game.particles.burst(this.hopperCenter, { count: 8, color: 0xffffff, speed: 2, size: 0.1, up: 3.5 });
     Audio.play('stuff');
@@ -136,6 +140,7 @@ export class Stuffer {
         if (this.game.conveyor.hasRoom()) {
           this.working.splice(i, 1);
           this.game.conveyor.addCan(Math.round(job.value * stats.valueMult), job.type);
+          this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });
         } else {
           this.blocked = true;
         }
@@ -146,6 +151,12 @@ export class Stuffer {
     const active = this.working.length > 0 && !this.blocked;
     this.blades.rotation.y += dt * (active ? 14 : 1.5);
     this.shake = Math.max(0, this.shake - dt);
+    // "gulp": the whole machine squashes and bulges when it swallows a plushie
+    this.gulp = Math.max(0, (this.gulp ?? 0) - dt * 3);
+    const g = Math.sin(this.gulp * Math.PI) * 0.12;
+    this.inner.scale.set(1 + g, 1 - g * 0.8, 1 + g);
+    // gentle "breathing" while working
+    if (active) this.inner.scale.y *= 1 + Math.sin(performance.now() / 110) * 0.015;
     const amp = (active ? 0.025 : 0) + this.shake * 0.12;
     this.inner.position.set((Math.random() - 0.5) * amp, 0, (Math.random() - 0.5) * amp);
     const blink = Math.sin(performance.now() / 120) > 0;

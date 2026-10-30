@@ -30,6 +30,8 @@ export class Plushie {
     this.body = model.body;
     this.eyes = model.eyes;
     this.stars = model.stars;
+    this.helmet = model.helmet;
+    this.armor = this.def.armor ?? 0;
     this.mesh.userData.plushie = this;
     this.pos = this.mesh.position;
     this.vel = new THREE.Vector3();
@@ -64,21 +66,28 @@ export class Plushie {
     this.heading = Math.atan2(to.x - from.x, to.z - from.z);
   }
 
-  // Returns true when this hit knocked the plushie out.
+  // Returns 'ko', 'hit', 'armor' (helmet absorbed it), 'armorBreak' or 'none'.
   takeHit(dmg, fromPos) {
     this.squash = 1;
-    if (this.state === 'ko') return false;
-    this.hp -= dmg;
+    if (this.state === 'ko') return 'none';
     _dir.subVectors(this.pos, fromPos).setY(0).normalize();
     this.vel.addScaledVector(_dir, 2.5);
+    this.state = 'flee';
+    this.timer = 3;
+    if (this.armor > 0) {
+      this.armor -= dmg;
+      if (this.armor > 0) return 'armor';
+      this.armor = 0;
+      if (this.helmet) this.helmet.visible = false;
+      return 'armorBreak';
+    }
+    this.hp -= dmg;
     if (this.hp <= 0) {
       this.hp = 0;
       this.knockOut();
-      return true;
+      return 'ko';
     }
-    this.state = 'flee';
-    this.timer = 3;
-    return false;
+    return 'hit';
   }
 
   knockOut(time = KO_TIME) {
@@ -108,7 +117,7 @@ export class Plushie {
         this.hopT += dt / this.hopDur;
         const t = Math.min(1, this.hopT);
         this.pos.lerpVectors(this.hopFrom, this.hopTo, t);
-        this.pos.y = THREE.MathUtils.lerp(this.hopFrom.y, this.hopTo.y, t) + Math.sin(t * Math.PI) * 2.6;
+        this.pos.y = THREE.MathUtils.lerp(this.hopFrom.y, this.hopTo.y, t) + Math.sin(t * Math.PI) * 2.4 * Math.min(1, this.hopDur);
         this.body.rotation.x = t * Math.PI * 2;
         if (t >= 1) {
           this.body.rotation.x = 0;
@@ -202,6 +211,10 @@ export class Plushie {
 
     this.moving = THREE.MathUtils.lerp(this.moving, speed > 0 ? 1 : 0, Math.min(1, dt * 8));
     this.animate(dt, speed);
+    if (this.def.golden && ctx.particles && Math.random() < dt * 4) {
+      _dir.set(this.pos.x + rand(-0.3, 0.3), this.pos.y + rand(0.3, 1.1), this.pos.z + rand(-0.3, 0.3));
+      ctx.particles.burst(_dir, { count: 1, color: 0xfff2a0, speed: 0.4, size: 0.04, up: 0.6, gravity: 0, life: 0.6 });
+    }
   }
 
   steer(dir, speed, dt) {
@@ -302,6 +315,22 @@ export class PlushieManager {
     p.pos.set(rand(-14, 14), 0, rand(-2, 20));
     if (this.game.colliders.pointInside(p.pos.x, p.pos.z)) p.pos.set(rand(-4, 4), 0, rand(8, 16));
     return p;
+  }
+
+  // Matryoshka: replace a knocked-out mama with a handful of minis that pop out and run.
+  split(p, day) {
+    const { splitsInto, splitCount } = p.def;
+    const from = p.pos.clone().setY(0.6);
+    this.remove(p);
+    for (let i = 0; i < splitCount; i++) {
+      const mini = this.spawn(splitsInto, day);
+      const a = (i / splitCount) * Math.PI * 2 + Math.random();
+      const to = new THREE.Vector3(from.x + Math.cos(a) * 1.8, 0, from.z + Math.sin(a) * 1.8);
+      if (this.game.colliders.pointInside(to.x, to.z)) to.set(from.x, 0, from.z);
+      to.x = THREE.MathUtils.clamp(to.x, B.minX, B.maxX);
+      to.z = THREE.MathUtils.clamp(to.z, B.minZ, B.maxZ);
+      mini.startHop(from, to, 0.6);
+    }
   }
 
   remove(p) {

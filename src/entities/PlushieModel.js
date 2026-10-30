@@ -7,6 +7,7 @@ const G = {
   capsule: new THREE.CapsuleGeometry(1, 2.4, 4, 10),
   cone: new THREE.ConeGeometry(1, 1, 10),
   star: new THREE.OctahedronGeometry(1, 0),
+  dome: new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
 };
 
 const matCache = new Map();
@@ -25,7 +26,7 @@ function part(geo, material, [sx, sy, sz], [x, y, z], parent, shadows) {
   return m;
 }
 
-// Returns { root, body, eyes, stars }. root: position + heading, body: waddle/lying/squash.
+// Returns { root, body, eyes, stars, helmet }. root: position + heading, body: waddle/lying/squash.
 export function buildPlushie(def, shadows) {
   const root = new THREE.Group();
   const body = new THREE.Group();
@@ -64,7 +65,28 @@ export function buildPlushie(def, shadows) {
     } else if (def.ears === 'pointy') {
       const ear = part(G.cone, fur, [0.11, 0.22, 0.07], [sx * 0.17, 1.17, 0], body, shadows);
       ear.rotation.z = -sx * 0.25;
+    } else if (def.ears === 'floppy') {
+      const ear = part(G.capsule, mat(0x8a5a35), [0.07, 0.09, 0.04], [sx * 0.3, 0.88, 0], body, shadows);
+      ear.rotation.z = sx * 0.35;
     }
+  }
+
+  // Knight helmet: a dented pot with a little plume. Falls off when the armour breaks.
+  let helmet = null;
+  if (def.helmet) {
+    helmet = new THREE.Group();
+    const steel = mat(0xb8c0cc, { metalness: 0.75, roughness: 0.3 });
+    part(G.dome, steel, [0.33, 0.3, 0.32], [0, 0, 0], helmet, shadows);
+    part(G.sphere, steel, [0.36, 0.03, 0.35], [0, 0, 0], helmet, false);
+    const plume = part(G.capsule, mat(0xff6b8b), [0.05, 0.06, 0.05], [0, 0.36, -0.05], helmet, false);
+    plume.rotation.x = -0.4;
+    helmet.position.set(0, 1.03, 0);
+    body.add(helmet);
+  }
+  if (def.splitsInto) {
+    // matryoshka seam + painted flower
+    part(G.sphere, mat(0xffd23f), [0.39, 0.03, 0.35], [0, 0.62, 0], body, false);
+    part(G.lowSphere, mat(0xffd23f), [0.07, 0.07, 0.03], [0, 0.42, 0.36], body, false);
   }
   if (def.ears === 'pointy') {
     // a little tail for the kitty
@@ -87,5 +109,5 @@ export function buildPlushie(def, shadows) {
   root.add(stars);
 
   root.scale.setScalar(def.scale);
-  return { root, body, eyes, stars };
+  return { root, body, eyes, stars, helmet };
 }
