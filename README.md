@@ -9,6 +9,9 @@ Dai camion scendono i pupazzi, che scappano dal giocatore. Il giocatore li stord
 - **Tutorial guidato** il primo giorno: banner + freccia 3D; il tempo parte solo dopo il primo lancio.
 - **Pupazzi**: Orsetto, Coniglietto, Gattino, Orsetto d'Oro (raro), Cagnolino Cavaliere (l'elmo assorbe i primi colpi), Orsa Matrioska (stordita si divide in 3 mini-orsetti).
 - **Automazione**: i Fluffbot raccolgono da soli i pupazzi storditi e li portano all'Imbottitrice.
+- **Ampliamenti** (acquisto singolo): seconda linea di produzione nell'ala est, Incartatrice (+50% di valore sulle lattine), Tramoggia grande (coda da 6).
+- **Armi** (tasti 1-4, rotella o Q): blaster a schiuma, Lanciareti (KO istantaneo ad area, anche sui corazzati), Cannone a coriandoli (cono a corto raggio), Aspirapupazzi (risucchia in mano i pupazzi storditi).
+- **Stile**: guanti, colori delle armi, colore delle Imbottitrici e decorazioni della fabbrica (festoni, piante, statua dell'Orsetto d'Oro).
 - **Visuale in prima persona**: mani con guanti che reggono il blaster e la pila di pupazzi, oscillazione dell'arma, rinculo, FOV dinamico in corsa, passi e atterraggio.
 - **Musica** procedurale e impostazioni separate per audio, musica e qualità grafica (bassa / media / alta, con abbassamento automatico se il gioco va a scatti).
 - Font Fredoka incluso nel pacchetto (nessuna richiesta esterna oltre all'SDK).
@@ -37,14 +40,16 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 | --- | --- |
 | `src/core/GameManager.js` | Macchina a stati (menu, giornata, fine giornata), timer, camion, economia, salvataggi |
 | `src/core/EventBus.js` | Comunicazione tra sistemi (`canSold`, `plushieStuffed`, `plushieKO`, `truckArrived`) |
-| `src/data/config.js` | **Tutti i parametri di bilanciamento**: pupazzi, giornate, quota, potenziamenti, statistiche derivate |
+| `src/data/config.js` | **Tutti i parametri di bilanciamento**: pupazzi, giornate, quota, potenziamenti, sblocchi, armi, cosmetici |
 | `src/entities/Player.js` | Movimento FPS, blaster, presa, lancio con mira assistita verso la tramoggia |
 | `src/entities/Plushies.js` | IA dei pupazzi (vagano, fuggono, KO, trasportati, lanciati) e relativo manager |
 | `src/entities/Stuffer.js` | Coda, slot paralleli, tempo di lavorazione, blocco quando il nastro è pieno |
 | `src/entities/Conveyor.js` | Nastro con lattine a distanza minima e vendita alla spedizione |
 | `src/entities/Truck.js` | Consegne alla porta sul retro |
 | `src/entities/Robot.js` | Fluffbot: raccoglie i pupazzi storditi e li consegna all'Imbottitrice |
-| `src/entities/Viewmodel.js` | Mani, blaster e pupazzi in mano in prima persona |
+| `src/entities/Viewmodel.js` | Mani, armi e pupazzi in mano in prima persona |
+| `src/entities/Weapons.js` | Logica delle 4 armi (colpi, rete, cono di coriandoli, aspirazione) |
+| `src/world/Decor.js` | Decorazioni acquistabili della fabbrica |
 | `src/systems/Tutorial.js` | Tutorial guidato del primo giorno |
 | `src/systems/` | Input (mouse/tastiera + touch), audio procedurale, wrapper della piattaforma |
 | `src/ui/UI.js` | HUD, menu, negozio, numeri fluttuanti |

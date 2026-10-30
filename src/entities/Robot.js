@@ -5,7 +5,7 @@ import { Audio } from '../systems/Audio.js';
 
 const RADIUS = 0.4;
 const PICK_DIST = 0.75;
-const DROP = new THREE.Vector3(LAYOUT.stuffer.x, 0, LAYOUT.stuffer.z + LAYOUT.stuffer.d / 2 + 0.75);
+const DROP_OFFSET = LAYOUT.stuffer.d / 2 + 0.75; // park in front of the machine
 const _d = new THREE.Vector3();
 
 let M = null;
@@ -77,6 +77,22 @@ export class Robot {
       }
     }
     return best;
+  }
+
+  // Deliver to the least busy machine, nearer ones first on ties.
+  pickStuffer() {
+    let best = null;
+    let score = Infinity;
+    for (const s of this.game.stuffers) {
+      if (!s.enabled) continue;
+      const sc = s.load * 10 + s.center.distanceTo(this.pos);
+      if (sc < score) {
+        score = sc;
+        best = s;
+      }
+    }
+    this.stuffer = best;
+    this.drop = best.center.clone().setZ(best.center.z + DROP_OFFSET);
   }
 
   release() {
@@ -154,20 +170,22 @@ export class Robot {
           this.cargo = p;
           this.target = null;
           this.state = 'deliver';
+          this.pickStuffer();
           Audio.play('grab');
         }
         break;
       }
       case 'deliver': {
-        if (this.moveTo(DROP, speed, dt) < 0.35) {
+        if (this.moveTo(this.drop, speed, dt) < 0.35) {
           this.heading = Math.PI; // face the machine
           if (this.timer <= 0) {
             this.timer = 0.6;
-            if (this.game.stuffer.tryAccept(this.cargo, { silent: true })) {
+            if (!this.stuffer.enabled) this.pickStuffer();
+            else if (this.stuffer.tryAccept(this.cargo, { silent: true })) {
               this.cargo = null;
               this.state = 'seek';
               this.timer = 0.2;
-            }
+            } else this.pickStuffer(); // full: maybe the other line has room
           }
         }
         break;

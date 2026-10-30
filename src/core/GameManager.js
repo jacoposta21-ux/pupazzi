@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import {
   SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, QUOTA_BONUS, UPGRADES, QUALITY,
-  computeStats, dayPlan, dayQuota, pickPlushieType, newSave, upgradeCost,
+  computeStats, dayPlan, dayQuota, pickPlushieType, newSave, upgradeCost, UNLOCKS, COSMETICS, DEFAULT_EQUIP,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
@@ -20,6 +20,7 @@ import { Truck } from '../entities/Truck.js';
 import { Robot } from '../entities/Robot.js';
 import { Tutorial } from '../systems/Tutorial.js';
 import { UI } from '../ui/UI.js';
+import { Decor } from '../world/Decor.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -88,8 +89,15 @@ export class GameManager {
     this.sun = factory.sun;
     this.applyQuality();
     this.particles = new Particles(this.scene);
-    this.conveyor = new Conveyor(this);
-    this.stuffer = new Stuffer(this);
+    // Production lines: line 0 is always there, the others are bought as expansions.
+    this.lines = LAYOUT.lines.map((cfg) => {
+      const conveyor = new Conveyor(this, cfg);
+      return { conveyor, stuffer: new Stuffer(this, cfg, conveyor) };
+    });
+    this.stuffers = this.lines.map((l) => l.stuffer);
+    this.stuffer = this.stuffers[0];
+    this.decor = new Decor(this);
+    this.syncLines();
     this.plushies = new PlushieManager(this);
     this.player = new Player(this);
     this.input = new Input(this);
@@ -134,8 +142,10 @@ export class GameManager {
     this.plushies.clear();
     this.player.carried.length = 0;
     this.player.carryAnchor.clear();
-    this.stuffer.reset();
-    this.conveyor.flush();
+    for (const l of this.lines) {
+      l.stuffer.reset();
+      l.conveyor.flush();
+    }
     for (const tr of this.trucks) tr.dispose();
     this.trucks = [];
     this.truckSchedule = [];
@@ -153,10 +163,32 @@ export class GameManager {
     this.resetWorld();
     this.player.setViewmodelVisible(false);
     this.save = Platform.load(SAVE_KEY);
+    // show the player's own factory (lines, paint, decorations) behind the menu
+    this.data = this.mergeSave(this.save ?? {});
+    this.stats = computeStats(this.data.levels, this.data.unlocks);
+    this.syncLines();
+    this.applyCosmetics();
     // decorative plushies wandering around behind the menu
     for (let i = 0; i < 10; i++) this.plushies.spawnWandering(pickPlushieType(3), 1);
     this.ui.showMenu(this.save);
     Audio.setMusicMood({ calm: true, duck: 1 });
+  }
+
+  // Merge onto a fresh save so older saves gain any new fields.
+  mergeSave(save = {}) {
+    const fresh = newSave();
+    return {
+      ...fresh,
+      ...save,
+      levels: { ...save.levels },
+      unlocks: { ...save.unlocks },
+      totals: { ...fresh.totals, ...save.totals },
+      cosmetics: {
+        owned: [...(save.cosmetics?.owned ?? [])],
+        equipped: { ...DEFAULT_EQUIP, ...save.cosmetics?.equipped },
+        decor: [...(save.cosmetics?.decor ?? [])],
+      },
+    };
   }
 
   newGame() {
@@ -166,13 +198,15 @@ export class GameManager {
   }
 
   continueGame() {
-    this.data = { ...newSave(), ...this.save };
+    this.data = this.mergeSave(this.save);
     this.resetWorld();
     this.startDay();
   }
 
   startDay() {
-    this.stats = computeStats(this.data.levels);
+    this.stats = computeStats(this.data.levels, this.data.unlocks);
+    this.syncLines();
+    this.applyCosmetics();
     this.quota = dayQuota(this.data.day);
     this.timeLeft = this.stats.dayLength;
     this.dayTime = 0;
@@ -211,7 +245,8 @@ export class GameManager {
     this.disposeRobots();
     Audio.setMusicMood({ calm: true, duck: 1 });
 
-    const flushed = this.stuffer.flush() + this.conveyor.flush();
+    let flushed = 0;
+    for (const l of this.lines) flushed += l.stuffer.flush() + l.conveyor.flush();
     const ds = this.dayStats;
     ds.earned += flushed;
     const quotaMet = ds.earned >= this.quota;
@@ -273,10 +308,69 @@ export class GameManager {
     if (this.data.cash < cost) return false;
     this.data.cash -= cost;
     this.data.levels[id] = lvl + 1;
-    this.stats = computeStats(this.data.levels);
+    this.stats = computeStats(this.data.levels, this.data.unlocks);
     Audio.play('buy');
     this.persist();
     return true;
+  }
+
+  buyUnlock(id) {
+    const u = UNLOCKS.find((x) => x.id === id);
+    if (this.data.unlocks[id] || this.data.cash < u.cost) return false;
+    this.data.cash -= u.cost;
+    this.data.unlocks[id] = true;
+    this.stats = computeStats(this.data.levels, this.data.unlocks);
+    this.syncLines();
+    Audio.play('fanfare');
+    this.persist();
+    return true;
+  }
+
+  // Buys a cosmetic, or equips / toggles it if already owned.
+  buyCosmetic(id) {
+    const c = COSMETICS.find((x) => x.id === id);
+    const cos = this.data.cosmetics;
+    const owned = c.cost === 0 || cos.owned.includes(id);
+    if (!owned) {
+      if (this.data.cash < c.cost) return false;
+      this.data.cash -= c.cost;
+      cos.owned.push(id);
+      Audio.play('buy');
+      if (c.slot === 'decor') cos.decor.push(id);
+      else cos.equipped[c.slot] = id;
+    } else if (c.slot === 'decor') {
+      const i = cos.decor.indexOf(id);
+      if (i >= 0) cos.decor.splice(i, 1);
+      else cos.decor.push(id);
+      Audio.play('click');
+    } else {
+      cos.equipped[c.slot] = id;
+      Audio.play('click');
+    }
+    this.applyCosmetics();
+    this.persist();
+    return true;
+  }
+
+  applyCosmetics() {
+    const cos = this.data.cosmetics ?? newSave().cosmetics;
+    const find = (id) => COSMETICS.find((c) => c.id === id);
+    const gloves = find(cos.equipped.gloves) ?? find(DEFAULT_EQUIP.gloves);
+    const skin = find(cos.equipped.blaster) ?? find(DEFAULT_EQUIP.blaster);
+    const paint = find(cos.equipped.stuffer) ?? find(DEFAULT_EQUIP.stuffer);
+    this.player.vm.applyGloves(gloves.color, gloves.metal);
+    this.player.vm.applySkin(skin.colors, skin.metal);
+    for (const s of this.stuffers) s.bodyMat.color.setHex(paint.color);
+    this.decor.apply(cos.decor);
+  }
+
+  syncLines() {
+    const n = this.stats.lines;
+    this.lines.forEach((l, i) => {
+      l.stuffer.setEnabled(i < n);
+      l.conveyor.setEnabled(i < n);
+      l.conveyor.setWrapper(this.stats.wrap);
+    });
   }
 
   onTutorialDone() {
@@ -393,9 +487,8 @@ export class GameManager {
     const a = this.time * 0.08;
     this.camera.position.set(Math.sin(a) * 13, 6.5, 6 + Math.cos(a) * 13);
     this.camera.lookAt(-2, 1, 2);
-    this.plushies.update(dt, { player: null, colliders: this.colliders, stuffer: this.stuffer, time: this.time, particles: this.particles });
-    this.stuffer.update(dt);
-    this.conveyor.update(dt, this.stats.beltSpeed);
+    this.plushies.update(dt, { player: null, colliders: this.colliders, stuffers: this.stuffers, time: this.time, particles: this.particles });
+    this.updateLines(dt);
   }
 
   updatePlaying(dt) {
@@ -415,13 +508,13 @@ export class GameManager {
     this.plushies.update(dt, {
       player: this.player,
       colliders: this.colliders,
-      stuffer: this.stuffer,
+      stuffers: this.stuffers,
       time: this.time,
       particles: this.particles,
     });
     for (const r of this.robots) r.update(dt);
-    this.stuffer.update(dt);
-    this.conveyor.update(dt, this.stats.beltSpeed);
+    this.updateLines(dt);
+    this.decor.update(dt);
     for (const tr of this.trucks) tr.update(dt);
     this.trucks = this.trucks.filter((tr) => {
       if (tr.state === 'done') tr.dispose();
@@ -436,6 +529,13 @@ export class GameManager {
     }
     this.ui.updateHud();
     if (this.timeLeft <= 0) this.endDay();
+  }
+
+  updateLines(dt) {
+    for (const l of this.lines) {
+      l.stuffer.update(dt);
+      l.conveyor.update(dt, this.stats.beltSpeed);
+    }
   }
 
   unloadPlushie(from) {

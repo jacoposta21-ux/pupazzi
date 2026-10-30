@@ -69,29 +69,83 @@ export class Viewmodel {
     this.swayX = 0;
     this.swayY = 0;
     this.time = 0;
+    this.switchT = 0;
+    this.pendingWeapon = null;
     this.buildGun();
     this.buildLeftArm();
   }
 
   buildGun() {
+    // gun = shared mount (grip + right hand); each weapon model is a child shown one at a time
     const gun = new THREE.Group();
     gun.position.copy(GUN_POS);
     this.root.add(gun);
     this.gun = gun;
-
-    mesh(new THREE.BoxGeometry(0.06, 0.075, 0.22), M.orange, gun);
-    mesh(new THREE.BoxGeometry(0.03, 0.016, 0.16), M.blue, gun, v(0, 0.045, -0.01));
-    mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 14), M.blue, gun, v(0, 0.005, -0.16), null, [Math.PI / 2, 0, 0]);
-    mesh(new THREE.TorusGeometry(0.026, 0.009, 8, 16), M.pink, gun, v(0, 0.005, -0.22));
-    mesh(new THREE.CircleGeometry(0.02, 12), M.foam, gun, v(0, 0.005, -0.221), null, [Math.PI, 0, 0]);
-    this.tank = mesh(sphere, M.tank, gun, v(0, 0.08, 0.035), 0.042);
-    this.foam = mesh(sphere, M.foam, gun, v(0, 0.07, 0.035), 0.03);
     mesh(new THREE.BoxGeometry(0.04, 0.1, 0.05), M.blue, gun, v(0, -0.075, 0.065), null, [0.25, 0, 0]);
-    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, gun, v(0, -0.05, -0.09));
-    for (const sx of [-1, 1]) mesh(sphere, M.pink, gun, v(sx * 0.031, 0, -0.03), v(0.006, 0.02, 0.02));
-    this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, 0.005, -0.24);
-    gun.add(this.muzzle);
+
+    this.models = {};
+    this.muzzles = {};
+    const model = (id, muzzleZ, muzzleY = 0.005) => {
+      const g = new THREE.Group();
+      g.visible = id === 'blaster';
+      gun.add(g);
+      const mz = new THREE.Object3D();
+      mz.position.set(0, muzzleY, muzzleZ);
+      g.add(mz);
+      this.models[id] = g;
+      this.muzzles[id] = mz;
+      return g;
+    };
+
+    // Foam blaster
+    let g = model('blaster', -0.24);
+    mesh(new THREE.BoxGeometry(0.06, 0.075, 0.22), M.orange, g);
+    mesh(new THREE.BoxGeometry(0.03, 0.016, 0.16), M.blue, g, v(0, 0.045, -0.01));
+    mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 14), M.blue, g, v(0, 0.005, -0.16), null, [Math.PI / 2, 0, 0]);
+    mesh(new THREE.TorusGeometry(0.026, 0.009, 8, 16), M.pink, g, v(0, 0.005, -0.22));
+    mesh(new THREE.CircleGeometry(0.02, 12), M.foam, g, v(0, 0.005, -0.221), null, [Math.PI, 0, 0]);
+    this.tank = mesh(sphere, M.tank, g, v(0, 0.08, 0.035), 0.042);
+    this.foam = mesh(sphere, M.foam, g, v(0, 0.07, 0.035), 0.03);
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+    for (const sx of [-1, 1]) mesh(sphere, M.pink, g, v(sx * 0.031, 0, -0.03), v(0.006, 0.02, 0.02));
+
+    // Net launcher: fat tube with a net ball loaded at the mouth
+    g = model('net', -0.3, 0.02);
+    mesh(new THREE.BoxGeometry(0.065, 0.07, 0.16), M.orange, g, v(0, 0, 0.02));
+    mesh(new THREE.CylinderGeometry(0.055, 0.045, 0.24, 16, 1, true), M.blue, g, v(0, 0.02, -0.15), null, [Math.PI / 2, 0, 0]);
+    mesh(new THREE.TorusGeometry(0.055, 0.01, 8, 18), M.pink, g, v(0, 0.02, -0.27));
+    mesh(new THREE.TorusGeometry(0.047, 0.008, 8, 18), M.pink, g, v(0, 0.02, -0.06));
+    this.netBall = mesh(new THREE.IcosahedronGeometry(0.04, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }), g, v(0, 0.02, -0.25));
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+    mesh(new THREE.BoxGeometry(0.02, 0.03, 0.05), M.pink, g, v(0, 0.06, 0.02));
+
+    // Confetti cannon: flared bell barrel with stripes
+    g = model('confetti', -0.32, 0.015);
+    mesh(new THREE.BoxGeometry(0.06, 0.07, 0.15), M.orange, g, v(0, 0, 0.03));
+    mesh(new THREE.CylinderGeometry(0.075, 0.03, 0.26, 18), M.blue, g, v(0, 0.015, -0.17), null, [-Math.PI / 2, 0, 0]);
+    for (const z of [-0.12, -0.2, -0.27]) mesh(new THREE.TorusGeometry(0.03 + (-z - 0.04) * 0.2, 0.006, 6, 18), M.pink, g, v(0, 0.015, z));
+    const cMats = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0x7a4fd1].map((c) => new THREE.MeshBasicMaterial({ color: c }));
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      mesh(new THREE.BoxGeometry(0.012, 0.012, 0.004), cMats[i % 5], g, v(Math.cos(a) * 0.045, 0.015 + Math.sin(a) * 0.045, -0.3), null, [a, a, 0]);
+    }
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+
+    // Plushie vacuum: canister + long nozzle + fan at the back
+    g = model('vacuum', -0.37, -0.01);
+    mesh(new THREE.BoxGeometry(0.07, 0.08, 0.16), M.orange, g, v(0, 0, 0.03));
+    mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.12, 16), M.tank, g, v(0, 0.085, 0.02), null, [Math.PI / 2, 0, 0]);
+    mesh(new THREE.CylinderGeometry(0.022, 0.03, 0.3, 14), M.blue, g, v(0, -0.01, -0.2), null, [Math.PI / 2, 0, 0]);
+    mesh(new THREE.CylinderGeometry(0.05, 0.03, 0.05, 16), M.pink, g, v(0, -0.01, -0.35), null, [-Math.PI / 2, 0, 0]);
+    this.fan = new THREE.Group();
+    this.fan.position.set(0, 0.005, 0.112);
+    g.add(this.fan);
+    for (let i = 0; i < 3; i++) mesh(new THREE.BoxGeometry(0.045, 0.01, 0.004), M.pink, this.fan, null, null, [0, 0, (i * Math.PI) / 3]);
+    mesh(new THREE.TorusGeometry(0.026, 0.005, 6, 16), M.blue, g, v(0, 0.005, 0.112));
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+
+    this.weapon = 'blaster';
+    this.muzzle = this.muzzles.blaster;
 
     // Right hand wrapped around the grip
     const hand = new THREE.Group();
@@ -104,6 +158,37 @@ export class Viewmodel {
     addFinger(hand, v(-0.012, 0.045, 0.012), 0.012, 0.03, [0, Math.PI / 2 + 0.3, 0.2]); // thumb
     limb(hand, v(0.025, -0.035, 0.03), v(0.028, -0.05, 0.05), 0.04, 0.042, M.cuff);
     limb(hand, v(0.028, -0.05, 0.05), v(0.14, -0.26, 0.28), 0.04, 0.052, M.sleeve);
+  }
+
+  // Swap weapon with a quick lower-and-raise animation.
+  setWeapon(id, instant = false) {
+    this.pendingWeapon = id;
+    this.muzzle = this.muzzles[id];
+    if (instant) {
+      this.showWeapon(id);
+      this.switchT = 0;
+    } else this.switchT = 1;
+  }
+
+  showWeapon(id) {
+    for (const k in this.models) this.models[k].visible = k === id;
+    this.weapon = id;
+    this.pendingWeapon = null;
+  }
+
+  // Cosmetics: recolour the shared weapon / glove materials.
+  applySkin(colors, metal = false) {
+    [M.orange, M.blue, M.pink].forEach((m, i) => {
+      m.color.setHex(colors[i]);
+      m.metalness = metal ? 0.6 : 0;
+      m.roughness = metal ? 0.3 : 0.5;
+    });
+  }
+
+  applyGloves(color, metal = false) {
+    M.glove.color.setHex(color);
+    M.glove.metalness = metal ? 0.6 : 0;
+    M.glove.roughness = metal ? 0.3 : 0.75;
   }
 
   buildLeftArm() {
@@ -135,8 +220,8 @@ export class Viewmodel {
     });
   }
 
-  kickRecoil() {
-    this.recoil = 1;
+  kickRecoil(strength = 1) {
+    this.recoil = strength;
   }
   playThrow() {
     this.throwT = 1;
@@ -145,12 +230,15 @@ export class Viewmodel {
     this.grabT = 1;
   }
 
-  // s: { dt, bob, moving, lookDX, lookDY, sprinting, reloading, ammoFrac, carried, onGround }
+  // s: { dt, bob, moving, lookDX, lookDY, sprinting, reloading, ammoFrac, vacuumOn, netLoaded, carried }
   update(s) {
     const dt = s.dt;
     this.time += dt;
     const k = (rate) => Math.min(1, dt * rate);
     this.recoil = Math.max(0, this.recoil - dt * 9);
+    this.switchT = Math.max(0, this.switchT - dt * 4);
+    if (this.pendingWeapon && this.switchT <= 0.5) this.showWeapon(this.pendingWeapon);
+    const sw = Math.sin(this.switchT * Math.PI);
     this.throwT = Math.max(0, this.throwT - dt * 3.5);
     this.grabT = Math.max(0, this.grabT - dt * 5);
     this.carryBlend += ((s.carried.length > 0 ? 1 : 0) - this.carryBlend) * k(10);
@@ -168,8 +256,14 @@ export class Viewmodel {
 
     // Gun: recoil kick + reload tilt
     const r = this.recoil;
-    this.gun.position.set(GUN_POS.x, GUN_POS.y - this.reloadT * 0.06 + r * 0.01, GUN_POS.z + r * 0.05);
-    this.gun.rotation.set(r * 0.18 + this.reloadT * 0.5, 0, this.reloadT * -0.5);
+    this.gun.position.set(GUN_POS.x, GUN_POS.y - this.reloadT * 0.06 + r * 0.01 - sw * 0.25, GUN_POS.z + r * 0.05);
+    this.gun.rotation.set(r * 0.18 + this.reloadT * 0.5 - sw * 0.6, 0, this.reloadT * -0.5);
+    this.netBall.visible = !!s.netLoaded;
+    if (s.vacuumOn) {
+      this.fan.rotation.z += dt * 40;
+      this.gun.position.x += (Math.random() - 0.5) * 0.003;
+      this.gun.position.y += (Math.random() - 0.5) * 0.003;
+    }
     const fill = 0.25 + 0.75 * Math.min(1, s.ammoFrac);
     this.foam.scale.set(0.03, 0.03 * fill, 0.03);
     this.foam.position.y = 0.07 - (1 - fill) * 0.025;
@@ -184,7 +278,7 @@ export class Viewmodel {
       THREE.MathUtils.lerp(POSE.support.rot.z, POSE.carry.rot.z, b),
     );
     // follow the gun when supporting it
-    arm.position.y += (1 - b) * (r * 0.01 - this.reloadT * (0.07 + Math.sin(this.time * 14) * 0.02));
+    arm.position.y += (1 - b) * (r * 0.01 - sw * 0.25 - this.reloadT * (0.07 + Math.sin(this.time * 14) * 0.02));
     arm.position.z += (1 - b) * r * 0.05;
     const th = Math.sin(this.throwT * Math.PI);
     const gr = Math.sin(this.grabT * Math.PI);

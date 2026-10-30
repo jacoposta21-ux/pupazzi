@@ -34,6 +34,7 @@
         <div id="tutorial" class="hidden"><div id="tutorial-text"></div><div id="tutorial-sub" class="sub"></div></div>
         <div class="hud-bottom-left"><div class="pill" id="hud-carry"></div></div>
         <div class="hud-bottom-right"><div class="ammo" id="hud-ammo"></div></div>
+        <div id="weapon-bar"></div>
         <div id="toast"></div>
       </div>
 
@@ -47,6 +48,7 @@
           <button class="tbtn" data-btn="throw">🎯</button>
           <button class="tbtn" data-btn="jump">⤒</button>
           <button class="tbtn" data-btn="reload">⟳</button>
+          <button class="tbtn" data-btn="swap">🔁</button>
         </div>
       </div>
 
@@ -70,6 +72,7 @@
             <p data-i18n="ctrlMove" class="desktop-only"></p>
             <p data-i18n="ctrlShoot" class="desktop-only"></p>
             <p data-i18n="ctrlGrab" class="desktop-only"></p>
+            <p data-i18n="ctrlWeapons" class="desktop-only"></p>
             <p data-i18n="ctrlTouch" class="touch-only"></p>
             <p data-i18n="ctrlGoal" class="goal"></p>
           </div>
@@ -104,7 +107,11 @@
             <button id="btn-double" class="btn ad hidden" data-i18n="doubleAd"></button>
             <div class="pill cash big">💰 <span id="de-cash"></span></div>
           </div>
-          <h3 data-i18n="shop"></h3>
+          <div class="tabs">
+            <button class="tab active" data-tab="upgrades" data-i18n="tabUpgrades"></button>
+            <button class="tab" data-tab="unlocks" data-i18n="tabUnlocks"></button>
+            <button class="tab" data-tab="style" data-i18n="tabStyle"></button>
+          </div>
           <div id="shop"></div>
           <button id="btn-next" class="btn primary"></button>
         </div>

@@ -1,7 +1,7 @@
 // DOM overlay: menus, HUD, shop, toasts and floating numbers. Reads game state, never mutates it directly.
 import * as THREE from 'three';
 import { t, applyI18n } from '../i18n.js';
-import { UPGRADES, upgradeCost } from '../data/config.js';
+import { UPGRADES, UNLOCKS, COSMETICS, WEAPONS, upgradeCost } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -33,6 +33,14 @@ export class UI {
     click('btn-next', () => game.nextDay());
     click('btn-double', () => game.doubleEarnings());
     click('btn-touch-pause', () => game.pause());
+    this.tab = 'upgrades';
+    document.querySelectorAll('.tab').forEach((el) =>
+      el.addEventListener('click', () => {
+        Audio.play('click');
+        this.tab = el.dataset.tab;
+        this.renderShop();
+      }),
+    );
     const each = (cls, fn) =>
       document.querySelectorAll(cls).forEach((el) =>
         el.addEventListener('click', (e) => {
@@ -153,13 +161,27 @@ export class UI {
     else truck = g.trucks.length ? '' : t('noMoreTrucks');
     this.set('hud-truck', truck);
 
-    const s = g.stuffer;
-    this.set('hud-machine', t('machine', { busy: s.busy, slots: st.slots, q: s.queue.length }) + (s.blocked ? t('beltFull') : ''));
+    const active = g.stuffers.filter((x) => x.enabled);
+    const busy = active.reduce((n, x) => n + x.busy, 0);
+    const queued = active.reduce((n, x) => n + x.queue.length, 0);
+    const blocked = active.some((x) => x.blocked);
+    this.set('hud-machine', t('machine', { busy, slots: st.slots * active.length, q: queued }) + (blocked ? t('beltFull') : ''));
     this.set('hud-carry', t('carry', { n: p.carried.length, max: st.carry }));
+    const W = p.weapons;
+    const cur = W.current;
+    const mag = W.mag(cur);
     this.set(
       'hud-ammo',
-      p.reloadTimer > 0 ? `<small>${t('reloading')}</small>` : `🫧 ${p.ammo}<small> / ${st.magSize}</small>`,
+      W.reloading
+        ? `<small>${t('reloading')}</small>`
+        : mag === Infinity
+          ? `${WEAPONS[cur].icon} <small>∞</small>`
+          : `${WEAPONS[cur].icon} ${W.ammo[cur]}<small> / ${mag}</small>`,
     );
+    // weapon bar (only when more than one weapon is owned)
+    const list = W.list;
+    const bar = list.length > 1 ? list.map((id) => `<div class="slot${id === cur ? ' active' : ''}"><small>${WEAPONS[id].slot}</small>${WEAPONS[id].icon}</div>`).join('') : '';
+    this.set('weapon-bar', bar);
 
     const touch = g.isTouch;
     let prompt = '';
@@ -275,35 +297,84 @@ export class UI {
   renderShop() {
     const g = this.game;
     $('de-cash').textContent = `$${g.data.cash}`;
+    document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === this.tab));
     const shop = $('shop');
     shop.innerHTML = '';
     let cat = null;
-    for (const u of UPGRADES) {
-      if (u.cat !== cat) {
-        cat = u.cat;
-        const h = document.createElement('div');
-        h.className = 'shop-cat';
-        h.textContent = t('cat_' + cat);
-        shop.appendChild(h);
-      }
-      const lvl = g.data.levels[u.id] || 0;
-      const maxed = lvl >= u.max;
-      const cost = upgradeCost(u, lvl);
-      const locked = u.requires && !(g.data.levels[u.requires] > 0);
+    const header = (c) => {
+      if (c === cat) return;
+      cat = c;
+      const h = document.createElement('div');
+      h.className = 'shop-cat';
+      h.textContent = t('cat_' + c);
+      shop.appendChild(h);
+    };
+    const card = ({ html, disabled, cls = [], onClick }) => {
       const btn = document.createElement('button');
-      btn.className = 'upg';
-      btn.disabled = maxed || locked || cost > g.data.cash;
-      if (!btn.disabled) btn.classList.add('affordable');
-      btn.innerHTML = `
-        <div class="name">${u.icon} ${t('u_' + u.id)}</div>
-        <div class="desc">${t('d_' + u.id)}</div>
-        ${locked ? `<div class="req">${t('requires', { name: t('u_' + u.requires) })}</div>` : ''}
-        <div class="row"><span>${t('lvl', { l: lvl, m: u.max })}</span>
-        <span class="cost">${maxed ? t('max') : '$' + cost}</span></div>`;
+      btn.className = ['upg', ...cls].join(' ');
+      btn.disabled = disabled;
+      if (!disabled && !cls.length) btn.classList.add('affordable');
+      btn.innerHTML = html;
       btn.addEventListener('click', () => {
-        if (g.buyUpgrade(u.id)) this.renderShop();
+        if (onClick()) this.renderShop();
       });
       shop.appendChild(btn);
+    };
+
+    if (this.tab === 'upgrades') {
+      for (const u of UPGRADES) {
+        header(u.cat);
+        const lvl = g.data.levels[u.id] || 0;
+        const maxed = lvl >= u.max;
+        const cost = upgradeCost(u, lvl);
+        const locked = u.requires && !(g.data.levels[u.requires] > 0);
+        card({
+          disabled: maxed || locked || cost > g.data.cash,
+          html: `
+            <div class="name">${u.icon} ${t('u_' + u.id)}</div>
+            <div class="desc">${t('d_' + u.id)}</div>
+            ${locked ? `<div class="req">${t('requires', { name: t('u_' + u.requires) })}</div>` : ''}
+            <div class="row"><span>${t('lvl', { l: lvl, m: u.max })}</span>
+            <span class="cost">${maxed ? t('max') : '$' + cost}</span></div>`,
+          onClick: () => g.buyUpgrade(u.id),
+        });
+      }
+    } else if (this.tab === 'unlocks') {
+      for (const u of UNLOCKS) {
+        header(u.cat);
+        const owned = !!g.data.unlocks[u.id];
+        card({
+          disabled: owned || u.cost > g.data.cash,
+          cls: owned ? ['owned'] : [],
+          html: `
+            <div class="name">${u.icon} ${t('u_' + u.id)}</div>
+            <div class="desc">${t('d_' + u.id)}</div>
+            <div class="row"><span></span>
+            <span class="${owned ? 'state' : 'cost'}">${owned ? t('ownedTag') : '$' + u.cost}</span></div>`,
+          onClick: () => g.buyUnlock(u.id),
+        });
+      }
+    } else {
+      const cos = g.data.cosmetics;
+      for (const c of COSMETICS) {
+        header('style_' + c.slot);
+        const owned = c.cost === 0 || cos.owned.includes(c.id);
+        const on = c.slot === 'decor' ? cos.decor.includes(c.id) : cos.equipped[c.slot] === c.id;
+        const colors = c.colors ?? (c.color !== undefined ? [c.color] : []);
+        const swatches = colors.map((col) => `<span class="swatch" style="background:#${col.toString(16).padStart(6, '0')}"></span>`).join('');
+        let state;
+        if (!owned) state = `<span class="cost">$${c.cost}</span>`;
+        else if (c.slot === 'decor') state = `<span class="state">${t(on ? 'decorOn' : 'decorOff')}</span>`;
+        else state = `<span class="state">${t(on ? 'equipped' : 'equip')}</span>`;
+        card({
+          disabled: (!owned && c.cost > g.data.cash) || (owned && on && c.slot !== 'decor'),
+          cls: on ? ['equipped'] : owned ? ['owned'] : [],
+          html: `
+            <div class="name">${swatches}${t('c_' + c.id)}</div>
+            <div class="row"><span></span>${state}</div>`,
+          onClick: () => g.buyCosmetic(c.id),
+        });
+      }
     }
   }
 

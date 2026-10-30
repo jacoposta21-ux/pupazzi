@@ -239,11 +239,12 @@ export class Plushie {
     this.pos.addScaledVector(this.vel, dt);
     this.body.rotation.x += dt * 9;
 
-    if (this.rejectCooldown <= 0 && ctx.stuffer.inHopper(this.pos)) {
-      if (ctx.stuffer.tryAccept(this)) return;
+    const stuffer = this.rejectCooldown <= 0 && ctx.stuffers.find((s) => s.enabled && s.inHopper(this.pos));
+    if (stuffer) {
+      if (stuffer.tryAccept(this)) return;
       // machine full: spit it back out
       this.rejectCooldown = 1;
-      this.pos.y = ctx.stuffer.top + 0.6;
+      this.pos.y = stuffer.top + 0.6;
       this.vel.set(rand(-1, 1), 7, 4);
       return;
     }

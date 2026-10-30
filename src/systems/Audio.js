@@ -114,6 +114,29 @@ const SFX = {
   step: () => noise({ dur: 0.05, vol: 0.035, freq: 500 }),
   robot: () => tone({ freq: 1400, to: 2000, type: 'square', dur: 0.05, vol: 0.04 }),
   tutorial: () => tone({ freq: 880, to: 1320, type: 'sine', dur: 0.15, vol: 0.12 }),
+  swap() {
+    tone({ freq: 500, to: 700, type: 'square', dur: 0.05, vol: 0.06 });
+    tone({ freq: 700, to: 900, type: 'square', dur: 0.05, vol: 0.06, delay: 0.08 });
+  },
+  net() {
+    noise({ dur: 0.25, vol: 0.25, freq: 600, type: 'bandpass' });
+    tone({ freq: 220, to: 140, type: 'triangle', dur: 0.2, vol: 0.15 });
+  },
+  netHit() {
+    noise({ dur: 0.3, vol: 0.2, freq: 900, type: 'bandpass' });
+    tone({ freq: 600, to: 1200, type: 'triangle', dur: 0.2, vol: 0.12 });
+  },
+  netMiss: () => noise({ dur: 0.2, vol: 0.15, freq: 500 }),
+  confetti() {
+    noise({ dur: 0.35, vol: 0.35, freq: 2500, type: 'highpass' });
+    tone({ freq: 160, to: 50, type: 'sine', dur: 0.25, vol: 0.4 });
+    [1046, 1318, 1568].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.12, vol: 0.06, delay: 0.05 + i * 0.05 }));
+  },
+  vacuum: () => noise({ dur: 0.16, vol: 0.09, freq: 1200, type: 'bandpass' }),
+  wrap() {
+    noise({ dur: 0.12, vol: 0.08, freq: 3000, type: 'highpass' });
+    tone({ freq: 1568, type: 'sine', dur: 0.12, vol: 0.06, delay: 0.05 });
+  },
 };
 
 // ---------- Music: I–vi–IV–V loop, 16 steps per bar, 4 bars ----------

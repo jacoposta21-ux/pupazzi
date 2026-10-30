@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GRAVITY, LAYOUT } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 import { Viewmodel } from './Viewmodel.js';
+import { WeaponSystem } from './Weapons.js';
 
 const EYE = 1.6;
 const RADIUS = 0.4;
@@ -16,7 +17,6 @@ const _right = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const CENTER = new THREE.Vector2(0, 0);
-const KO_COLORS = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0xffffff];
 
 export class Player {
   constructor(game) {
@@ -28,9 +28,6 @@ export class Player {
     this.pitch = 0;
     this.onGround = true;
     this.carried = [];
-    this.ammo = 0;
-    this.reloadTimer = 0;
-    this.cooldown = 0;
     this.bob = 0;
     this.lastStep = 0;
     this.kick = 0; // visual camera recoil
@@ -39,6 +36,7 @@ export class Player {
     this.aimingAtStuffer = false;
     this.raycaster = new THREE.Raycaster();
     this.vm = new Viewmodel(this.camera);
+    this.weapons = new WeaponSystem(this);
     this.respawn();
   }
 
@@ -55,8 +53,7 @@ export class Player {
   }
 
   refill() {
-    this.ammo = this.game.stats.magSize;
-    this.reloadTimer = 0;
+    this.weapons.refill();
   }
 
   setViewmodelVisible(v) {
@@ -138,17 +135,8 @@ export class Player {
     }
     this.camera.updateMatrixWorld();
 
-    // --- Blaster ---
-    this.cooldown -= dt;
-    if (this.reloadTimer > 0) {
-      this.reloadTimer -= dt;
-      if (this.reloadTimer <= 0) this.ammo = stats.magSize;
-    }
-    if (input.reloadPressed) this.startReload();
-    if (input.fire && this.cooldown <= 0 && this.reloadTimer <= 0) {
-      if (this.ammo > 0) this.shoot();
-      else this.startReload();
-    }
+    // --- Weapons ---
+    this.weapons.update(dt, input);
 
     // --- Aim / grab / throw ---
     this.updateAim();
@@ -162,78 +150,23 @@ export class Player {
       lookDX: dx,
       lookDY: dy,
       sprinting: sprinting && moving > 0.5,
-      reloading: this.reloadTimer > 0,
-      ammoFrac: this.ammo / stats.magSize,
+      reloading: this.weapons.reloading,
+      ammoFrac: this.weapons.ammoFrac,
+      vacuumOn: this.weapons.vacuumOn,
+      netLoaded: this.weapons.ammo.net > 0 && this.weapons.reload.net <= 0,
       carried: this.carried,
     });
   }
 
-  startReload() {
-    const stats = this.game.stats;
-    if (this.reloadTimer > 0 || this.ammo >= stats.magSize) return;
-    this.reloadTimer = stats.reloadTime;
-    Audio.play('reload');
-  }
-
   // Ray from the screen centre against the static world; returns the nearest distance.
-  worldHitDistance() {
-    const hits = this.raycaster.intersectObjects(this.game.solids, false);
+  worldHitDistance(raycaster = this.raycaster) {
+    const hits = raycaster.intersectObjects(this.game.solids, false);
     return hits.length ? hits[0].distance : Infinity;
   }
 
   plushieFromObject(obj) {
     while (obj && !obj.userData.plushie) obj = obj.parent;
     return obj?.userData.plushie ?? null;
-  }
-
-  shoot() {
-    const game = this.game;
-    const stats = game.stats;
-    this.ammo--;
-    this.cooldown = stats.fireCooldown;
-    this.vm.kickRecoil();
-    this.kick = Math.min(0.05, this.kick + 0.012);
-    Audio.play('shoot');
-
-    // aim from the true (un-kicked) view direction
-    this.camera.rotation.x = this.pitch;
-    this.camera.updateMatrixWorld();
-    this.raycaster.setFromCamera(CENTER, this.camera);
-    this.raycaster.far = 60;
-    const wall = this.worldHitDistance();
-    const hits = this.raycaster.intersectObjects(game.plushies.hitTargets(), true);
-    const from = this.vm.muzzle.getWorldPosition(_v);
-    let end;
-    // knocked-out plushies lying around don't soak up shots
-    const hit = hits.find((h) => h.distance < wall && this.plushieFromObject(h.object)?.state !== 'ko');
-    if (hit) {
-      const p = this.plushieFromObject(hit.object);
-      end = hit.point;
-      if (p) {
-        const result = p.takeHit(stats.damage, this.pos);
-        const ko = result === 'ko';
-        if (result !== 'none') game.ui.hitmarker(ko, result === 'armor');
-        if (ko) {
-          Audio.play('ko');
-          for (const c of KO_COLORS) game.particles.burst(hit.point, { count: 4, color: c, speed: 2.5, size: 0.05, up: 2.5 });
-          game.bus.emit('plushieKO', p);
-        } else if (result === 'armor') {
-          Audio.play('clang');
-          game.particles.burst(hit.point, { count: 6, color: 0xfff6c8, speed: 2.5, size: 0.03 });
-        } else if (result === 'armorBreak') {
-          Audio.play('armorBreak');
-          game.particles.burst(p.pos.clone().setY(1.2 * p.def.scale), { count: 14, color: 0xb8c0cc, speed: 3, size: 0.06, up: 3 });
-        } else if (result === 'hit') {
-          Audio.play('hit');
-          game.particles.burst(hit.point, { count: 7, color: 0xffffff, speed: 2, size: 0.05 });
-        }
-      }
-    } else {
-      end = this.raycaster.ray.at(Math.min(wall, 60), _v2);
-      if (wall < 60) game.particles.burst(end, { count: 4, color: 0xffffff, speed: 1.2, size: 0.04, life: 0.4 });
-    }
-    game.particles.tracer(from, end);
-    if (this.ammo === 0) this.startReload();
   }
 
   updateAim() {
@@ -269,11 +202,15 @@ export class Player {
   tryGrab() {
     const p = this.aimed;
     if (!p) return;
-    if (this.carried.length >= this.game.stats.carry) {
+    if (!this.grabPlushie(p)) {
       this.game.ui.toast('handsFull');
       Audio.play('empty');
-      return;
     }
+  }
+
+  // Puts a plushie in the left hand. Returns false when hands are full.
+  grabPlushie(p) {
+    if (this.carried.length >= this.game.stats.carry) return false;
     this.game.particles.burst(p.pos.clone().setY(0.5), { count: 5, color: p.def.color, speed: 1, size: 0.05 });
     p.state = 'carried';
     p.claimedBy = null;
@@ -288,18 +225,28 @@ export class Player {
     this.vm.layoutCarried(this.carried);
     this.vm.playGrab();
     Audio.play('grab');
+    return true;
   }
 
   // Ballistic velocity that lands in the hopper, or null if the Stuffer isn't roughly ahead.
   stufferAssist(fromPos) {
-    const target = this.game.stuffer.hopperCenter;
     const from = fromPos ?? this.camera.position;
-    _v.subVectors(target, from);
-    const flat = Math.hypot(_v.x, _v.z);
-    if (flat > THROW_ASSIST_RANGE) return null;
     const fwd = this.forward;
-    _v2.copy(_v).normalize();
-    if (fwd.dot(_v2) < 0.82) return null;
+    let best = null;
+    let bestDot = 0.82;
+    for (const s of this.game.stuffers) {
+      if (!s.enabled) continue;
+      _v.subVectors(s.hopperCenter, from);
+      if (Math.hypot(_v.x, _v.z) > THROW_ASSIST_RANGE) continue;
+      const dot = fwd.dot(_v2.copy(_v).normalize());
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = s;
+      }
+    }
+    if (!best) return null;
+    _v.subVectors(best.hopperCenter, from);
+    const flat = Math.hypot(_v.x, _v.z);
     const T = THREE.MathUtils.clamp(flat / 8, 0.35, 1.0);
     return new THREE.Vector3(_v.x / T, _v.y / T + 0.5 * GRAVITY * T, _v.z / T);
   }

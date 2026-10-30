@@ -19,6 +19,11 @@ export const LAYOUT = {
   door: { x: 0, z: 24, halfWidth: 3, height: 4.5 },
   stuffer: { x: -8, z: -6, w: 3, d: 3, h: 2.2 },
   belt: { startX: -9.5, endX: -17.6, z: -6, top: 0.9 },
+  // Production lines: Stuffer position + the belt that runs from it to a shipping chute in the wall.
+  lines: [
+    { x: -8, z: -6, beltStart: -9.5, beltEnd: -17.6 },
+    { x: 8, z: -6, beltStart: 9.5, beltEnd: 17.6 },
+  ],
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
 };
@@ -75,7 +80,8 @@ export function dayQuota(day) {
   return Math.round((40 * Math.pow(day, 1.45)) / 5) * 5;
 }
 
-export const QUOTA_BONUS = 0.3; // fraction of the quota paid as bonus when met
+export const QUOTA_BONUS = 0.3;
+export const WRAP_BONUS = 1.5; // Gift Wrapper value multiplier // fraction of the quota paid as bonus when met
 export const MAX_PLUSHIES = 70;
 
 // Upgrades are pure data: cost = base * growth^level.
@@ -95,12 +101,55 @@ export const UPGRADES = [
   { id: 'robotSpeed', cat: 'automation', icon: '🔋', max: 6, base: 120, growth: 1.7, requires: 'robot' },
 ];
 
+// One-time purchases: factory expansions and new weapons.
+export const UNLOCKS = [
+  { id: 'line2', cat: 'expansion', icon: '🏭', cost: 1500 },
+  { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
+  { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
+  { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
+  { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
+  { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
+];
+
+// Weapon tuning. The blaster's numbers come from upgrades (see computeStats).
+export const WEAPONS = {
+  blaster: { slot: 1, icon: '🫧' },
+  // Net: slow arcing projectile, instantly knocks out whatever it lands on (armour included).
+  net: { slot: 2, icon: '🕸️', mag: 3, reload: 2.4, cooldown: 0.75, speed: 20, radius: 1.1, koTime: 14 },
+  // Confetti cannon: short-range cone that damages every plushie in it.
+  confetti: { slot: 3, icon: '🎉', mag: 2, reload: 2.2, cooldown: 0.9, range: 7.5, cone: 0.42, damage: 2 },
+  // Vacuum: hold to pull knocked-out plushies into your arms.
+  vacuum: { slot: 4, icon: '🌀', range: 9, cone: 0.5, pull: 7, grabDist: 1.3 },
+};
+
+// Cosmetics. slot 'decor' items toggle independently; the others are equipped one at a time.
+export const COSMETICS = [
+  { id: 'glove_yellow', slot: 'gloves', color: 0xffd23f, cost: 0 },
+  { id: 'glove_pink', slot: 'gloves', color: 0xff6b8b, cost: 150 },
+  { id: 'glove_mint', slot: 'gloves', color: 0x5fe0b7, cost: 150 },
+  { id: 'glove_black', slot: 'gloves', color: 0x2a2a33, cost: 250 },
+  { id: 'glove_gold', slot: 'gloves', color: 0xffc933, metal: true, cost: 1500 },
+  { id: 'skin_orange', slot: 'blaster', colors: [0xff8a3d, 0x3f73c4, 0xff6b8b], cost: 0 },
+  { id: 'skin_bubblegum', slot: 'blaster', colors: [0xff9ecf, 0xf6f1f6, 0x5fe0b7], cost: 200 },
+  { id: 'skin_ocean', slot: 'blaster', colors: [0x2fb5d6, 0x1d3b6e, 0xffd23f], cost: 200 },
+  { id: 'skin_midnight', slot: 'blaster', colors: [0x2a2140, 0xff6b8b, 0x5fe0b7], cost: 350 },
+  { id: 'skin_gold', slot: 'blaster', colors: [0xffc933, 0x6b4a12, 0xffffff], metal: true, cost: 2000 },
+  { id: 'paint_pink', slot: 'stuffer', color: 0xff6b8b, cost: 0 },
+  { id: 'paint_blue', slot: 'stuffer', color: 0x3f73c4, cost: 250 },
+  { id: 'paint_mint', slot: 'stuffer', color: 0x2fb58a, cost: 250 },
+  { id: 'paint_purple', slot: 'stuffer', color: 0x7a4fd1, cost: 250 },
+  { id: 'decor_bunting', slot: 'decor', cost: 300 },
+  { id: 'decor_plants', slot: 'decor', cost: 400 },
+  { id: 'decor_statue', slot: 'decor', cost: 2500 },
+];
+export const DEFAULT_EQUIP = { gloves: 'glove_yellow', blaster: 'skin_orange', stuffer: 'paint_pink' };
+
 export function upgradeCost(u, level) {
   return Math.round(u.base * Math.pow(u.growth, level));
 }
 
 // Derived stats: base value modified by upgrade levels.
-export function computeStats(levels) {
+export function computeStats(levels, unlocks = {}) {
   const L = (id) => levels[id] || 0;
   return {
     moveSpeed: 5 * (1 + 0.08 * L('speed')),
@@ -110,7 +159,9 @@ export function computeStats(levels) {
     magSize: 6 + 3 * L('ammo'),
     reloadTime: 1.2,
     slots: 1 + L('slots'),
-    queueSize: 3,
+    queueSize: unlocks.silo ? 6 : 3,
+    lines: unlocks.line2 ? 2 : 1,
+    wrap: !!unlocks.wrapper,
     processTime: 2.6 * Math.pow(0.86, L('process')),
     beltSpeed: 1.3 * (1 + 0.2 * L('belt')),
     valueMult: 1 + 0.15 * L('value'),
@@ -127,6 +178,8 @@ export function newSave() {
     day: 1,
     cash: 0,
     levels: {},
+    unlocks: {},
+    cosmetics: { owned: [], equipped: { ...DEFAULT_EQUIP }, decor: [] },
     tutorialDone: false,
     totals: { stuffed: 0, earned: 0, knockouts: 0, bestDay: 0 },
   };

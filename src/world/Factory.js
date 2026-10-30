@@ -147,7 +147,6 @@ export function buildFactory(scene, colliders, { shadows }) {
   };
   sign('STUFFED CO.', '#ff6b8b', 8, 2, 0, 5.6, F.minZ + 0.01, 0);
   sign('UNLOADING', '#2fb58a', 4, 1, D.x, 5.2, F.maxZ - 0.01, Math.PI);
-  sign('SHIPPING', '#3f73c4', 3.2, 0.8, F.minX + 0.01, 3.1, LAYOUT.belt.z, Math.PI / 2);
 
   return { solids, sun };
 }

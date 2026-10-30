@@ -9,6 +9,7 @@ export class Input {
     this.mousePressed = [false, false, false];
     this.lookX = 0;
     this.lookY = 0;
+    this.wheelDelta = 0;
     this.locked = false;
     this.touch = { x: 0, y: 0, fire: false, sprint: false };
     this.touchPressed = new Set();
@@ -35,6 +36,13 @@ export class Input {
       this.lookX += e.movementX;
       this.lookY += e.movementY;
     });
+    addEventListener(
+      'wheel',
+      (e) => {
+        if (this.locked) this.wheelDelta += e.deltaY;
+      },
+      { passive: true },
+    );
     addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
@@ -158,6 +166,17 @@ export class Input {
   get jumpPressed() {
     return this.pressed.has('Space') || this.touchPressed.has('jump');
   }
+  // 1-4 when a number key was pressed this frame, else 0
+  get weaponSlot() {
+    for (let i = 1; i <= 4; i++) if (this.pressed.has('Digit' + i) || this.pressed.has('Numpad' + i)) return i;
+    return 0;
+  }
+  get wheel() {
+    return Math.abs(this.wheelDelta) > 1 ? this.wheelDelta : 0;
+  }
+  get swapPressed() {
+    return this.pressed.has('KeyQ') || this.touchPressed.has('swap');
+  }
   get reloadPressed() {
     return this.pressed.has('KeyR') || this.touchPressed.has('reload');
   }
@@ -170,6 +189,7 @@ export class Input {
 
   endFrame() {
     this.pressed.clear();
+    this.wheelDelta = 0;
     this.mousePressed.fill(false);
     this.touchPressed.clear();
   }

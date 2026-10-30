@@ -42,6 +42,20 @@ export class Particles {
     }
   }
 
+  // Single particle with an explicit velocity (used for streams, e.g. the vacuum).
+  spawn(pos, vel, { color = 0xffffff, size = 0.04, life = 0.3, gravity = 0 } = {}) {
+    const m = this.pool.pop() ?? new THREE.Mesh(geo);
+    m.material = this.mat(color);
+    m.position.copy(pos);
+    m.scale.setScalar(size);
+    m.userData.vel = vel.clone();
+    m.userData.life = m.userData.maxLife = life;
+    m.userData.gravity = gravity;
+    m.userData.size = size;
+    this.scene.add(m);
+    this.active.push(m);
+  }
+
   tracer(from, to) {
     const m = new THREE.Mesh(tracerGeo, this.tracerMat);
     const len = from.distanceTo(to);

@@ -17,7 +17,7 @@ export class Colliders {
     let hit = false;
     for (let pass = 0; pass < 2; pass++) {
       for (const b of this.boxes) {
-        if (stepY >= b.height) continue;
+        if (b.disabled || stepY >= b.height) continue;
         const cx = clamp(pos.x, b.minX, b.maxX);
         const cz = clamp(pos.z, b.minZ, b.maxZ);
         const dx = pos.x - cx;
@@ -47,7 +47,7 @@ export class Colliders {
     let h = 0;
     const rr = r * 0.7;
     for (const b of this.boxes) {
-      if (b.height > stepY || b.height <= h) continue;
+      if (b.disabled || b.height > stepY || b.height <= h) continue;
       const cx = clamp(pos.x, b.minX, b.maxX);
       const cz = clamp(pos.z, b.minZ, b.maxZ);
       const dx = pos.x - cx;
@@ -59,7 +59,7 @@ export class Colliders {
 
   pointInside(x, z, y = 0) {
     for (const b of this.boxes) {
-      if (y < b.height && x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
+      if (!b.disabled && y < b.height && x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
     }
     return false;
   }

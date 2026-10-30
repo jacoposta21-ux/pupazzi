@@ -7,12 +7,16 @@ import { Audio } from '../systems/Audio.js';
 const MAX_LAMPS = 6;
 
 export class Stuffer {
-  constructor(game) {
+  constructor(game, line, conveyor) {
     this.game = game;
+    this.conveyor = conveyor;
+    this.enabled = true;
     this.queue = [];
     this.working = [];
     this.shake = 0;
-    const { x, z, w, d, h } = LAYOUT.stuffer;
+    const { w, d, h } = LAYOUT.stuffer;
+    const { x, z } = line;
+    const side = Math.sign(line.beltStart - x); // which side the belt leaves from
     this.center = new THREE.Vector3(x, 0, z);
     this.top = h;
     this.hopperCenter = new THREE.Vector3(x, h + 0.4, z);
@@ -26,11 +30,13 @@ export class Stuffer {
     this.group.add(this.inner);
 
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5, metalness: 0.1 });
+    this.bodyMat = bodyMat;
     const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
     body.position.y = h / 2;
     body.castShadow = body.receiveShadow = shadows;
     this.inner.add(body);
     game.solids.push(body);
+    this.body = body;
 
     const band = new THREE.Mesh(
       new THREE.BoxGeometry(w + 0.04, 0.35, d + 0.04),
@@ -87,11 +93,28 @@ export class Stuffer {
 
     // output spout towards the belt
     const spout = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
-    spout.position.set(-w / 2 - 0.2, LAYOUT.belt.top + 0.45, 0);
+    spout.position.set(side * (w / 2 + 0.2), LAYOUT.belt.top + 0.45, 0);
     this.group.add(spout);
-    this.spoutPos = new THREE.Vector3(x - w / 2 - 0.3, LAYOUT.belt.top + 0.5, z);
+    this.spoutPos = new THREE.Vector3(x + side * (w / 2 + 0.3), LAYOUT.belt.top + 0.5, z);
 
-    game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
+    this.collider = game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
+  }
+
+  setEnabled(on) {
+    this.enabled = on;
+    this.group.visible = on;
+    this.collider.disabled = !on;
+    const i = this.game.solids.indexOf(this.body);
+    if (on && i < 0) this.game.solids.push(this.body);
+    if (!on && i >= 0) this.game.solids.splice(i, 1);
+  }
+
+  get load() {
+    return this.queue.length + this.working.length;
+  }
+
+  hasRoom(stats = this.game.stats) {
+    return this.load < this.capacity(stats);
   }
 
   inHopper(p) {
@@ -128,6 +151,7 @@ export class Stuffer {
   }
 
   update(dt) {
+    if (!this.enabled) return;
     const stats = this.game.stats;
     while (this.working.length < stats.slots && this.queue.length) {
       this.working.push({ ...this.queue.shift(), t: 0 });
@@ -137,9 +161,9 @@ export class Stuffer {
       const job = this.working[i];
       job.t += dt;
       if (job.t >= stats.processTime) {
-        if (this.game.conveyor.hasRoom()) {
+        if (this.conveyor.hasRoom()) {
           this.working.splice(i, 1);
-          this.game.conveyor.addCan(Math.round(job.value * stats.valueMult), job.type);
+          this.conveyor.addCan(Math.round(job.value * stats.valueMult), job.type);
           this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });
         } else {
           this.blocked = true;
