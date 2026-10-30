@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Stuffed!</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game"></canvas>
+      <div id="floaters"></div>
+
+      <!-- In-game HUD -->
+      <div id="hud" class="hidden">
+        <div class="hud-top-left">
+          <div class="pill cash">💰 <span id="hud-cash">$0</span></div>
+          <div class="pill"><span id="hud-day"></span></div>
+          <div class="quota">
+            <div class="quota-label" id="hud-quota-label"></div>
+            <div class="bar"><div id="hud-quota-fill"></div></div>
+          </div>
+        </div>
+        <div class="hud-top-center">
+          <div id="hud-timer" class="timer">0:00</div>
+          <div id="hud-truck" class="sub"></div>
+        </div>
+        <div class="hud-top-right">
+          <div class="pill" id="hud-machine"></div>
+          <button id="btn-touch-pause" class="pill touch-only">II</button>
+        </div>
+        <div id="crosshair"><div class="dot"></div></div>
+        <div id="hitmarker"></div>
+        <div id="prompt"></div>
+        <div class="hud-bottom-left"><div class="pill" id="hud-carry"></div></div>
+        <div class="hud-bottom-right"><div class="ammo" id="hud-ammo"></div></div>
+        <div id="toast"></div>
+      </div>
+
+      <!-- Touch controls -->
+      <div id="touch-ui" class="hidden">
+        <div id="look-zone"></div>
+        <div id="joy-zone"><div id="joy-base"><div id="joy-knob"></div></div></div>
+        <div id="touch-buttons">
+          <button class="tbtn big" data-btn="fire">💥</button>
+          <button class="tbtn" data-btn="grab">✋</button>
+          <button class="tbtn" data-btn="throw">🎯</button>
+          <button class="tbtn" data-btn="jump">⤒</button>
+          <button class="tbtn" data-btn="reload">⟳</button>
+        </div>
+      </div>
+
+      <!-- Main menu -->
+      <div id="menu" class="screen hidden">
+        <div class="panel menu-panel">
+          <h1 class="logo">STUFFED!</h1>
+          <p class="tagline" data-i18n="tagline"></p>
+          <div class="menu-buttons">
+            <button id="btn-continue" class="btn primary hidden"></button>
+            <button id="btn-new" class="btn" data-i18n="newGame"></button>
+          </div>
+          <div class="controls">
+            <h3 data-i18n="controlsTitle"></h3>
+            <p data-i18n="ctrlMove" class="desktop-only"></p>
+            <p data-i18n="ctrlShoot" class="desktop-only"></p>
+            <p data-i18n="ctrlGrab" class="desktop-only"></p>
+            <p data-i18n="ctrlTouch" class="touch-only"></p>
+            <p data-i18n="ctrlGoal" class="goal"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pause -->
+      <div id="pause" class="screen hidden">
+        <div class="panel">
+          <h2 data-i18n="paused"></h2>
+          <button id="btn-resume" class="btn primary" data-i18n="resume"></button>
+          <label class="setting">
+            <span data-i18n="sensitivity"></span>
+            <input id="sens" type="range" min="0.3" max="2.5" step="0.05" />
+          </label>
+          <button id="btn-sound" class="btn small"></button>
+          <button id="btn-quit" class="btn small ghost" data-i18n="quitMenu"></button>
+        </div>
+      </div>
+
+      <!-- End of day + shop -->
+      <div id="dayend" class="screen hidden">
+        <div class="panel wide">
+          <h2 id="de-title"></h2>
+          <div class="summary" id="de-summary"></div>
+          <div id="de-quota" class="quota-result"></div>
+          <div class="de-actions">
+            <button id="btn-double" class="btn ad hidden" data-i18n="doubleAd"></button>
+            <div class="pill cash big">💰 <span id="de-cash"></span></div>
+          </div>
+          <h3 data-i18n="shop"></h3>
+          <div id="shop"></div>
+          <button id="btn-next" class="btn primary"></button>
+        </div>
+      </div>
+
+      <div id="loading" class="screen"><div class="loading-text">Stuffed!</div></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

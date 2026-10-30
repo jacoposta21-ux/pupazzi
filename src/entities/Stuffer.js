@@ -1,0 +1,176 @@
+// The Stuffer: plushies thrown into the hopper are queued, processed in parallel slots and turned into cans.
+import * as THREE from 'three';
+import { LAYOUT } from '../data/config.js';
+import { hazardTexture, signTexture } from '../world/Textures.js';
+import { Audio } from '../systems/Audio.js';
+
+const MAX_LAMPS = 6;
+
+export class Stuffer {
+  constructor(game) {
+    this.game = game;
+    this.queue = [];
+    this.working = [];
+    this.shake = 0;
+    const { x, z, w, d, h } = LAYOUT.stuffer;
+    this.center = new THREE.Vector3(x, 0, z);
+    this.top = h;
+    this.hopperCenter = new THREE.Vector3(x, h + 0.4, z);
+    this.bounds = { minX: x - w / 2 - 0.15, maxX: x + w / 2 + 0.15, minZ: z - d / 2 - 0.15, maxZ: z + d / 2 + 0.15 };
+
+    const shadows = game.shadows;
+    this.group = new THREE.Group();
+    this.group.position.copy(this.center);
+    game.scene.add(this.group);
+    this.inner = new THREE.Group();
+    this.group.add(this.inner);
+
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5, metalness: 0.1 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
+    body.position.y = h / 2;
+    body.castShadow = body.receiveShadow = shadows;
+    this.inner.add(body);
+    game.solids.push(body);
+
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.04, 0.35, d + 0.04),
+      new THREE.MeshStandardMaterial({ map: hazardTexture(6) }),
+    );
+    band.position.y = 0.2;
+    this.inner.add(band);
+
+    const metal = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide });
+    const hopper = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 0.9, 0.9, 20, 1, true), metal);
+    hopper.position.y = h + 0.45;
+    hopper.castShadow = shadows;
+    this.inner.add(hopper);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.07, 8, 28), metal);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = h + 0.9;
+    this.inner.add(rim);
+    const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.9, 20), new THREE.MeshStandardMaterial({ color: 0x15121c }));
+    mouth.rotation.x = -Math.PI / 2;
+    mouth.position.y = h + 0.02;
+    this.inner.add(mouth);
+
+    // spinning fluff-blades inside the mouth
+    this.blades = new THREE.Group();
+    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xffd23f });
+    for (let i = 0; i < 2; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.05, 0.16), bladeMat);
+      b.rotation.y = (i * Math.PI) / 2;
+      this.blades.add(b);
+    }
+    this.blades.position.y = h + 0.08;
+    this.inner.add(this.blades);
+
+    // Front sign + status lamps
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 0.6),
+      new THREE.MeshBasicMaterial({ map: signTexture('STUFFER', '#2a2140'), toneMapped: false }),
+    );
+    sign.position.set(0, h - 0.5, d / 2 + 0.01);
+    this.inner.add(sign);
+
+    this.lamps = [];
+    this.lampOff = new THREE.MeshStandardMaterial({ color: 0x444851 });
+    this.lampIdle = new THREE.MeshStandardMaterial({ color: 0x5fe0b7, emissive: 0x1f8063, emissiveIntensity: 0.8 });
+    this.lampBusy = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0xffa000, emissiveIntensity: 1.2 });
+    this.lampBlocked = new THREE.MeshStandardMaterial({ color: 0xff4d4d, emissive: 0xff0000, emissiveIntensity: 1.2 });
+    const lampGeo = new THREE.SphereGeometry(0.12, 12, 8);
+    for (let i = 0; i < MAX_LAMPS; i++) {
+      const l = new THREE.Mesh(lampGeo, this.lampOff);
+      l.position.set(-0.9 + i * 0.36, h - 1.1, d / 2 + 0.05);
+      this.inner.add(l);
+      this.lamps.push(l);
+    }
+
+    // output spout towards the belt
+    const spout = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
+    spout.position.set(-w / 2 - 0.2, LAYOUT.belt.top + 0.45, 0);
+    this.group.add(spout);
+
+    game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
+  }
+
+  inHopper(p) {
+    const b = this.bounds;
+    return p.y > this.top - 0.6 && p.y < this.top + 2.5 && p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ;
+  }
+
+  get busy() {
+    return this.working.length;
+  }
+
+  capacity(stats) {
+    return stats.slots + stats.queueSize;
+  }
+
+  tryAccept(plushie) {
+    const stats = this.game.stats;
+    if (this.queue.length + this.working.length >= this.capacity(stats)) {
+      Audio.play('reject');
+      this.game.ui.toast('machineFull');
+      return false;
+    }
+    this.queue.push({ type: plushie.type, value: plushie.def.value });
+    this.game.plushies.remove(plushie);
+    this.shake = 0.4;
+    this.game.particles.burst(this.hopperCenter, { count: 14, color: plushie.def.color, speed: 2.5, size: 0.08, up: 3 });
+    this.game.particles.burst(this.hopperCenter, { count: 8, color: 0xffffff, speed: 2, size: 0.1, up: 3.5 });
+    Audio.play('stuff');
+    this.game.bus.emit('plushieStuffed', { type: plushie.type });
+    return true;
+  }
+
+  update(dt) {
+    const stats = this.game.stats;
+    while (this.working.length < stats.slots && this.queue.length) {
+      this.working.push({ ...this.queue.shift(), t: 0 });
+    }
+    this.blocked = false;
+    for (let i = this.working.length - 1; i >= 0; i--) {
+      const job = this.working[i];
+      job.t += dt;
+      if (job.t >= stats.processTime) {
+        if (this.game.conveyor.hasRoom()) {
+          this.working.splice(i, 1);
+          this.game.conveyor.addCan(Math.round(job.value * stats.valueMult), job.type);
+        } else {
+          this.blocked = true;
+        }
+      }
+    }
+
+    // animation
+    const active = this.working.length > 0 && !this.blocked;
+    this.blades.rotation.y += dt * (active ? 14 : 1.5);
+    this.shake = Math.max(0, this.shake - dt);
+    const amp = (active ? 0.025 : 0) + this.shake * 0.12;
+    this.inner.position.set((Math.random() - 0.5) * amp, 0, (Math.random() - 0.5) * amp);
+    const blink = Math.sin(performance.now() / 120) > 0;
+    for (let i = 0; i < MAX_LAMPS; i++) {
+      const l = this.lamps[i];
+      l.visible = i < stats.slots;
+      if (i < this.working.length) {
+        const done = this.working[i].t >= stats.processTime;
+        l.material = done ? this.lampBlocked : blink ? this.lampBusy : this.lampIdle;
+      } else l.material = this.lampIdle;
+    }
+  }
+
+  // End of day: all queued and in-progress plushies are finished instantly. Returns total value.
+  flush() {
+    const mult = this.game.stats.valueMult;
+    let total = 0;
+    for (const j of [...this.queue, ...this.working]) total += Math.round(j.value * mult);
+    this.queue.length = 0;
+    this.working.length = 0;
+    return total;
+  }
+
+  reset() {
+    this.queue.length = 0;
+    this.working.length = 0;
+  }
+}

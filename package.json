@@ -1,0 +1,29 @@
+{
+  "name": "stuffed",
+  "version": "1.0.0",
+  "description": "Stuffed! — a first-person plushie factory incremental game for CrazyGames",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jacoposta21-ux/pupazzi.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jacoposta21-ux/pupazzi/issues"
+  },
+  "homepage": "https://github.com/jacoposta21-ux/pupazzi#readme",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "vite": "^6.4.5"
+  },
+  "type": "module",
+  "private": true
+}
