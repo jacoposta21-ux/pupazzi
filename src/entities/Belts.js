@@ -36,8 +36,6 @@ export class BeltTile {
     this.fixed = fixed;
     this.top = TOP;
     this.enabled = true;
-    this.wrapper = { visible: false };
-    this.wrapAt = Infinity;
     this.group = new THREE.Group();
     this.group.position.set(x, 0, z);
     this.group.userData.tile = this;

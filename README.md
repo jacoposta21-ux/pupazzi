@@ -14,9 +14,9 @@ Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I 
 - **Piazzamento libero** (B): le macchine comprate finiscono nella borsa. Si piazzano su una griglia da 0,5 m con anteprima verde o rossa e si ruotano con R. Dopo ogni piazzamento torna subito l'arma in mano. In modalità costruzione, E su una macchina la riprende.
   - Base Fluffbot: il suo robot raccoglie i pupazzi storditi e li consegna.
   - Sparabot: torretta che spara ai pupazzi vicini.
-  - Braccio robotico: messo vicino a un'Imbottitrice, afferra i pupazzi storditi che ha a portata (anche dai nastri) e li butta nella tramoggia.
+  - Braccio robotico: messo vicino a un'Imbottitrice, afferra ogni pupazzo che ha a portata (sveglio, stordito o su un nastro) e lo butta nella tramoggia.
   - Esca Lecca-lecca: attira i pupazzi che vagano.
-  - Linea di produzione: Imbottitrice con nastro. Le lattine cadono in fondo al nastro. Anche la linea iniziale si sposta.
+  - Imbottitrice: le lattine escono dallo scivolo nella casella da 1 m davanti. Se lì c'è un nastro lo seguono, altrimenti cadono a terra. Anche la prima Imbottitrice si sposta (B, poi E mirandola).
   - **Nastri al metro**: si clicca l'inizio e la fine e il percorso a L con la curva si piazza da solo (R cambia il lato della curva). Trasportano tutto quello che ci finisce sopra (lattine, pupazzi storditi) fino all'unica **spedizione**, lo scivolo nel muro ovest con due pezzi di nastro fissi davanti. E su un nastro lo rimuove con rimborso.
   - Scanner a raggi X: portale che scansiona i pupazzi che ci passano sotto. Quelli con una pepita si illuminano, e i robot li lasciano al giocatore.
 - **Lattine**: sono oggetti fisici. Si raccolgono con E e si lanciano con F: il lancio assistito le manda nella spedizione.

@@ -23,8 +23,11 @@ export const LAYOUT = {
   // The starter production line: Stuffer + belt running west to a shipping chute in the wall.
   // Shipping: the only exit for cans, a chute in the west wall fed by two fixed belt tiles.
   shipping: { z: -6, tiles: [-16, -17] },
-  // The starter production line (a normal, movable 'line' machine) feeding the shipping belt.
-  starterLine: { type: 'line', x: -11, z: -6, rot: 2 },
+  // Starting setup: one Stuffer (a normal, movable machine) and a belt run to the shipping stub.
+  starter: {
+    stuffer: { type: 'stuffer', x: -8, z: -6, rot: 2 },
+    belts: [-10, -11, -12, -13, -14, -15].map((x) => ({ x, z: -6, d: 2 })),
+  },
   terminal: { x: 5, z: 13 },
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
@@ -149,7 +152,7 @@ export const PLACEABLES = [
   { id: 'arm', icon: '🦿', cost: 450, growth: 1.7, size: [1.4, 1.4] },
   { id: 'lure', icon: '🍭', cost: 300, growth: 1.6, size: [1.0, 1.0] },
   { id: 'scanner', icon: '🩻', cost: 1200, growth: 1.8, size: [1.2, 3.2] },
-  { id: 'line', icon: '🏭', cost: 1500, growth: 2.4, size: [9, 3.2] },
+  { id: 'stuffer', icon: '🏭', cost: 1200, growth: 2.2, size: [3, 3] },
   // legendary: paid with gold nuggets (10+ each)
   { id: 'megadock', icon: '🦾', nuggets: 10, size: [1.8, 1.8], legendary: true },
   { id: 'starTurret', icon: '🌟', nuggets: 12, size: [1.4, 1.4], legendary: true },
@@ -232,15 +235,15 @@ export function computeStats(levels, unlocks = {}) {
 
 export function newSave() {
   return {
-    version: 3,
+    version: 4,
     cash: 0,
     earned: 0, // lifetime earnings: drives the factory level and the $1M goal
     nuggets: 0,
     won: false,
     levels: {},
     unlocks: {},
-    placed: [{ ...LAYOUT.starterLine }], // [{ type, x, z, rot }]
-    belts: [], // [{ x, z, d }] 1 m belt tiles, d = quarter-turn direction
+    placed: [{ ...LAYOUT.starter.stuffer }], // [{ type, x, z, rot }]
+    belts: LAYOUT.starter.belts.map((b) => ({ ...b })), // 1 m belt tiles, d = quarter-turn direction
     inventory: {}, // bought but not placed: { type: count }
     bought: {}, // how many of each placeable were bought (price scaling)
     cosmetics: { owned: [], equipped: { ...DEFAULT_EQUIP }, decor: [] },

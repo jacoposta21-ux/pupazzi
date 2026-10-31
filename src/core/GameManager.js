@@ -47,9 +47,7 @@ export class GameManager {
     this.solids = [];
     this.trucks = [];
     this.machines = [];
-    this.lines = [];
     this.stuffers = [];
-    this.belts = [];
     this.data = newSave();
     this.stats = computeStats({});
     this.level = 1;
@@ -155,18 +153,13 @@ export class GameManager {
     return this.stuffers[0] ?? null;
   }
 
-  addLine(line) {
-    this.lines.push(line);
-    this.stuffers.push(line.stuffer);
-    this.belts.push(line.conveyor);
-    line.conveyor.setWrapper(this.stats.wrap);
+  addStuffer(st) {
+    this.stuffers.push(st);
     this.applyCosmetics?.();
   }
 
-  removeLine(line) {
-    this.lines = this.lines.filter((l) => l !== line);
-    this.stuffers = this.stuffers.filter((s) => s !== line.stuffer);
-    this.belts = this.belts.filter((b) => b !== line.conveyor);
+  removeStuffer(st) {
+    this.stuffers = this.stuffers.filter((s) => s !== st);
   }
 
   get lures() {
@@ -351,7 +344,6 @@ export class GameManager {
 
   refreshStats() {
     this.stats = computeStats(this.data.levels, this.data.unlocks);
-    for (const l of this.lines) l.conveyor.setWrapper(this.stats.wrap);
   }
 
   applyCosmetics() {
@@ -375,7 +367,7 @@ export class GameManager {
     this.player.carried.length = 0;
     this.player.carryAnchor.clear();
     this.clearMachines();
-    for (const l of this.lines) l.stuffer.reset();
+    for (const st of this.stuffers) st.reset();
     this.items.clear();
     this.beltNet.clear();
     for (const tr of this.trucks) tr.dispose();
@@ -424,7 +416,7 @@ export class GameManager {
       levels: { ...save.levels },
       unlocks: { ...save.unlocks },
       placed: [...(save.placed ?? fresh.placed)],
-      belts: [...(save.belts ?? [])],
+      belts: [...(save.belts ?? fresh.belts)],
       inventory: { ...save.inventory },
       bought: { ...save.bought },
       totals: { ...fresh.totals, ...save.totals },
@@ -439,22 +431,41 @@ export class GameManager {
       data.inventory.scanner = (data.inventory.scanner || 0) + 1;
       delete data.unlocks.scanner;
     }
+    const starter = () => {
+      data.placed.unshift({ ...LAYOUT.starter.stuffer });
+      data.belts.push(...LAYOUT.starter.belts.map((b) => ({ ...b })));
+    };
+    // (2 m belt pieces, catapults and fixed/combined production lines from older versions)
+    const D4 = [[1, 0], [0, 1], [-1, 0], [0, -1]];
     if (save.version === 2) {
-      // v2: the starter line was fixed (now a movable machine), belts were 2 m pieces, catapults became arms
-      data.placed.unshift({ ...LAYOUT.starterLine });
+      // v2: the starter line was fixed, belts were 2 m pieces, catapults became arms
       data.belts = [];
       for (const p of data.placed.filter((q) => q.type === 'belt')) {
-        const d = [[1, 0], [0, 1], [-1, 0], [0, -1]][p.rot % 4];
+        const d = D4[p.rot % 4];
         for (const k of [-0.5, 0.5]) data.belts.push({ x: Math.round(p.x + d[0] * k), z: Math.round(p.z + d[1] * k), d: p.rot % 4 });
       }
       data.placed = data.placed.filter((q) => q.type !== 'belt');
+      starter();
+    }
+    if (save.version === 2 || save.version === 3) {
+      // v3: a 'line' was Stuffer + 6 m belt: split it into a Stuffer and belt tiles
       for (const q of data.placed) if (q.type === 'catapult') q.type = 'arm';
+      const lines = data.placed.filter((q) => q.type === 'line');
+      data.placed = data.placed.filter((q) => q.type !== 'line');
+      for (const q of lines) {
+        const d = D4[q.rot % 4];
+        const sx = Math.round(q.x - d[0] * 3), sz = Math.round(q.z - d[1] * 3);
+        data.placed.push({ type: 'stuffer', x: sx, z: sz, rot: q.rot % 4 });
+        for (let k = 2; k <= 7; k++) data.belts.push({ x: sx + d[0] * k, z: sz + d[1] * k, d: q.rot % 4 });
+      }
       for (const bag of [data.inventory, data.bought]) {
         if (bag.catapult) bag.arm = (bag.arm || 0) + bag.catapult;
+        if (bag.line) bag.stuffer = (bag.stuffer || 0) + bag.line;
         delete bag.catapult;
         delete bag.belt;
+        delete bag.line;
       }
-      data.version = 3;
+      data.version = 4;
     }
     if (!save.version || save.version < 2) {
       // v1: the second line was an unlock, robots were an upgrade level
@@ -465,9 +476,12 @@ export class GameManager {
       delete data.levels.robot;
       delete data.levels.overtime;
       delete data.day;
-      data.placed = [{ ...LAYOUT.starterLine }];
+      data.placed = [];
       data.belts = [];
-      data.version = 3;
+      starter();
+      if (data.inventory.line) data.inventory.stuffer = data.inventory.line;
+      delete data.inventory.line;
+      data.version = 4;
     }
     return data;
   }
@@ -674,7 +688,7 @@ export class GameManager {
     this.camera.position.set(Math.sin(a) * 13, 6.5, 6 + Math.cos(a) * 13);
     this.camera.lookAt(-2, 1, 2);
     this.plushies.update(dt, this.plushieCtx(false));
-    this.updateLines(dt);
+    for (const st of this.stuffers) st.update(dt);
     this.beltNet.update(dt, this.stats.beltSpeed);
     this.items.update(dt);
   }
@@ -697,7 +711,7 @@ export class GameManager {
     this.player.update(dt, this.input);
     this.plushies.update(dt, this.plushieCtx(true));
     for (const m of this.machines) m.update(dt);
-    this.updateLines(dt);
+    for (const st of this.stuffers) st.update(dt);
     this.beltNet.update(dt, this.stats.beltSpeed);
     this.items.update(dt);
     this.decor.update(dt);
@@ -725,13 +739,6 @@ export class GameManager {
     if ((prev === 0 && this.shutterOpen > 0) || (prev === 1 && this.shutterOpen < 1)) Audio.play('shutter');
     const D = LAYOUT.door;
     this.shutter.position.y = D.height / 2 + this.shutterOpen * (D.height - 0.3);
-  }
-
-  updateLines(dt) {
-    for (const l of this.lines) {
-      l.stuffer.update(dt);
-      l.conveyor.update(dt, this.stats.beltSpeed);
-    }
   }
 
   unloadPlushie(from) {

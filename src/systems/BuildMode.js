@@ -272,8 +272,8 @@ export class BuildMode {
     if (this.type === 'belt') return this.updateBelt(input);
     if (!this.type || !this.ghost) return;
     const p = this.aimPoint();
-    // production lines snap to whole metres so their belts line up with belt tiles
-    const grid = this.type === 'line' ? 1 : GRID;
+    // Stuffers snap to whole metres so their output cell lines up with belt tiles
+    const grid = this.type === 'stuffer' ? 1 : GRID;
     p.x = Math.round(p.x / grid) * grid;
     p.z = Math.round(p.z / grid) * grid;
     this.valid = this.check(this.type, p.x, p.z, this.rot);

@@ -104,10 +104,7 @@ export class ItemManager {
   }
 
   beltUnder(p) {
-    const tile = this.game.beltNet.under(p);
-    if (tile) return tile;
-    for (const l of this.game.belts) if (l.carries(p)) return l;
-    return null;
+    return this.game.beltNet.under(p);
   }
 
   inChute(p) {
@@ -172,10 +169,8 @@ export class ItemManager {
         // riding a belt; keep the belt's momentum so the can slides onto the next belt (or off the end)
         c.vel.copy(belt.dir).multiplyScalar(speed);
         c.pos.y = belt.top;
-        const before = belt.local(c.pos).s;
         if (!this.blocked(c, belt, speed * dt)) c.pos.addScaledVector(belt.dir, speed * dt);
         else c.vel.set(0, 0, 0);
-        if (belt.wrapper.visible && !c.wrapped && before < belt.wrapAt && belt.local(c.pos).s >= belt.wrapAt) this.wrap(c);
         // drifting towards the belt centre line keeps cans tidy
         const side = belt.local(c.pos).side;
         c.pos.x -= -belt.dir.z * side * Math.min(1, dt * 4);

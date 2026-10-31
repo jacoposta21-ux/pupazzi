@@ -1,10 +1,9 @@
-// Freely placeable machines: Fluffbot docks, Sparabot turrets, robot arms, lures, scanners and production lines.
+// Freely placeable machines: Stuffers, Fluffbot docks, Sparabot turrets, robot arms, lures and scanners.
 // rot is a quarter-turn count (0-3); dir(rot) is the machine's facing on the XZ plane.
 import * as THREE from 'three';
 import { PLACEABLES, LAYOUT } from '../data/config.js';
 import { Robot } from './Robot.js';
 import { Stuffer } from './Stuffer.js';
-import { Conveyor } from './Conveyor.js';
 import { Audio } from '../systems/Audio.js';
 
 const DIRS = [
@@ -165,7 +164,7 @@ class Turret extends Machine {
   }
 }
 
-// ---------- Robot arm: grabs knocked-out plushies within reach and drops them into a nearby Stuffer ----------
+// ---------- Robot arm: grabs any plushie within reach (awake or knocked out) and drops it into a nearby Stuffer ----------
 const ARM_REACH = 2.6; // pick-up radius around the base
 const ARM_STUFFER_RANGE = 5; // the hopper must be this close
 
@@ -222,12 +221,19 @@ class RobotArm extends Machine {
     return best;
   }
 
+  // Nearest plushie in reach that can be picked up: knocked out, dazed or just wandering by.
   findPlushie() {
+    let best = null;
+    let bestD = ARM_REACH;
     for (const p of this.game.plushies.list) {
-      if ((p.state !== 'ko' && p.state !== 'dazed') || p.claimedBy) continue;
-      if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < ARM_REACH) return p;
+      if (!p.grabbable || p.claimedBy) continue;
+      const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
     }
-    return null;
+    return best;
   }
 
   // Turn the arm (in world yaw) and set how far it reaches: 0 = up, 1 = down to the floor.
@@ -268,13 +274,19 @@ class RobotArm extends Machine {
       }
       case 'reach': {
         const p = this.target;
-        if (!p || p.claimedBy !== this || (p.state !== 'ko' && p.state !== 'dazed')) {
+        const d = p ? Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) : Infinity;
+        // gone, grabbed by someone else, or ran out of reach: give up and look again
+        if (!p || p.claimedBy !== this || !p.grabbable || d > ARM_REACH + 0.4) {
+          if (p?.claimedBy === this) p.claimedBy = null;
+          this.target = null;
           this.state = 'idle';
           break;
         }
-        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
-        if (this.pose(yawTo(p.pos), THREE.MathUtils.clamp(d / ARM_REACH, 0.4, 1) * (p.pos.y > 0.5 ? 0.75 : 1), dt)) {
+        // awake plushies wriggle away, so the arm moves faster for them
+        const speed = p.state === 'ko' ? 6 : 10;
+        if (this.pose(yawTo(p.pos), THREE.MathUtils.clamp(d / ARM_REACH, 0.4, 1) * (p.pos.y > 0.5 ? 0.75 : 1), dt, speed)) {
           // grab: the plushie hangs from the claw
+          const awake = p.state !== 'ko';
           p.state = 'carried';
           p.claimedBy = this;
           p.mesh.removeFromParent();
@@ -282,6 +294,7 @@ class RobotArm extends Machine {
           p.mesh.rotation.set(Math.PI, 0, 0);
           p.mesh.scale.setScalar(0.7 * Math.min(1, p.def.scale));
           p.stars.visible = false;
+          if (awake) Audio.play('squeak');
           this.claw.add(p.mesh);
           this.held = p;
           this.state = 'swing';
@@ -342,25 +355,22 @@ class Lure extends Machine {
   }
 }
 
-// ---------- Production line: Stuffer + belt (cans drop off the end: route them with belts) ----------
-class ProductionLine extends Machine {
+// ---------- Stuffer: standalone machine; cans drop out of its spout onto a belt (or the floor) ----------
+class StufferMachine extends Machine {
   constructor(game, type, x, z, rot) {
     super(game, type, x, z, rot);
-    const d = dir(rot);
-    const at = (k) => ({ x: x + d.x * k, z: z + d.z * k });
-    const s = at(-3);
-    this.conveyor = new Conveyor(game, { start: at(-1.5), dir: d, length: 6, end: 'none' });
-    this.stuffer = new Stuffer(game, { x: s.x, z: s.z, out: d }, this.conveyor);
-    this.conveyor.setWrapper(game.stats.wrap);
-    this.line = { stuffer: this.stuffer, conveyor: this.conveyor };
-    game.addLine(this.line);
+    this.stuffer = new Stuffer(game, { x, z, out: dir(rot) });
+    // the Stuffer's own model is what the player aims at to pick the machine up
+    this.group.removeFromParent();
+    this.group = this.stuffer.group;
+    this.group.userData.machine = this;
+    game.addStuffer(this.stuffer);
   }
 
   dispose() {
-    this.game.removeLine(this.line);
+    this.game.removeStuffer(this.stuffer);
     this.stuffer.dispose();
-    this.conveyor.dispose();
-    super.dispose();
+    for (const c of this.colliders) this.game.colliders.remove(c);
   }
 }
 
@@ -422,7 +432,7 @@ const CLASSES = {
   starTurret: Turret,
   arm: RobotArm,
   lure: Lure,
-  line: ProductionLine,
+  stuffer: StufferMachine,
   scanner: Scanner,
 };
 
@@ -443,9 +453,10 @@ export function buildGhost(type) {
     m.position.set(x, y, z);
     g.add(m);
   };
-  if (type === 'line') {
-    shape(new THREE.BoxGeometry(3, LAYOUT.stuffer.h, 3), -3, LAYOUT.stuffer.h / 2, 0);
-    shape(new THREE.BoxGeometry(6, 0.2, 1), 1.5, LAYOUT.belt.top - 0.1, 0);
+  if (type === 'stuffer') {
+    shape(new THREE.BoxGeometry(3, LAYOUT.stuffer.h, 3), 0, LAYOUT.stuffer.h / 2, 0);
+    // the output cell where cans come out: put the first belt here
+    shape(new THREE.BoxGeometry(0.9, 0.05, 0.9), 2, LAYOUT.belt.top, 0);
   } else if (type === 'scanner') {
     shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, -1.45);
     shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, 1.45);

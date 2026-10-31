@@ -7,10 +7,10 @@ import { Audio } from '../systems/Audio.js';
 const MAX_LAMPS = 6;
 
 export class Stuffer {
-  // cfg: { x, z, out: {x, z} } — out = unit direction (axis-aligned) the belt leaves towards
-  constructor(game, cfg, conveyor) {
+  // cfg: { x, z, out: {x, z} } — out = unit direction (axis-aligned) the cans come out towards.
+  // Cans drop out of the spout into the 1 m cell in front of it: put a belt there, or they hit the floor.
+  constructor(game, cfg) {
     this.game = game;
-    this.conveyor = conveyor;
     this.enabled = true;
     this.queue = [];
     this.working = [];
@@ -21,6 +21,8 @@ export class Stuffer {
     this.out = new THREE.Vector3(out.x, 0, out.z);
     // where robots park to unload: the side opposite the belt
     this.dropSpot = this.center.clone().addScaledVector(this.out, -(w / 2 + 0.75));
+    // centre of the output cell, at belt height (a can falls to the floor if no belt is there)
+    this.outPos = this.center.clone().addScaledVector(this.out, w / 2 + 0.5).setY(LAYOUT.belt.top);
     this.top = h;
     this.hopperCenter = new THREE.Vector3(x, h + 0.4, z);
     this.bounds = { minX: x - w / 2 - 0.15, maxX: x + w / 2 + 0.15, minZ: z - d / 2 - 0.15, maxZ: z + d / 2 + 0.15 };
@@ -98,8 +100,9 @@ export class Stuffer {
     }
 
     // output spout towards the belt
-    const spout = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
-    spout.position.set(w / 2 + 0.2, LAYOUT.belt.top + 0.45, 0);
+    // short chute over the output cell: cans drop out under it
+    const spout = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 1.0), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
+    spout.position.set(w / 2 + 0.15, LAYOUT.belt.top + 0.55, 0);
     this.group.add(spout);
     this.spoutPos = new THREE.Vector3(x + out.x * (w / 2 + 0.3), LAYOUT.belt.top + 0.5, z + out.z * (w / 2 + 0.3));
 
@@ -226,14 +229,17 @@ export class Stuffer {
       const job = this.working[i];
       job.t += dt;
       if (job.t >= stats.processTime) {
-        // drop the can at the start of the belt, if that spot is free
-        const out = this.conveyor.start.clone().addScaledVector(this.conveyor.dir, 0.3);
+        // drop the can out of the spout, if the spot in front is free
+        const out = this.outPos;
         if (this.game.items.isFree(out)) {
           this.working.splice(i, 1);
           // a nugget inside: the sorter arm sets it aside, otherwise it ends up in the can
           const sorted = job.nugget && stats.sorter;
           if (sorted) this.sortNugget();
-          this.game.items.spawnCan(out, this.canValue(job.value), job.type, job.nugget && !sorted);
+          const can = this.game.items.spawnCan(out, this.canValue(job.value), job.type, job.nugget && !sorted);
+          if (stats.wrap) this.game.items.wrap(can); // Gift Wrapper upgrade: every can comes out wrapped
+          // with no belt below, the can tumbles out onto the floor in front of the machine
+          if (!this.game.beltNet.under(out)) can.vel.set(this.out.x * 1.5 + (Math.random() - 0.5), 0, this.out.z * 1.5 + (Math.random() - 0.5));
           this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });
         } else {
           this.blocked = true;
