@@ -11,19 +11,20 @@ Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I 
 - **Livello della fabbrica**: sale con i guadagni totali (soglie in `src/data/config.js`). Porta nuovi pupazzi, camion più grandi e lattine più preziose.
 - **Missioni a tempo** facoltative, una alla volta, per esempio "Imbottisci 8 pupazzi in 75 s": danno soldi e a volte una pepita.
 - **Terminale** fisico in fabbrica (E): negozio diviso in Potenziamenti, Macchine, Fabbrica e armi, Leggendari, Stile e Bonus.
-- **Piazzamento libero** (B): le macchine comprate finiscono nella borsa. Si piazzano su una griglia da 0,5 m con anteprima verde o rossa e si ruotano con R. Dopo ogni piazzamento torna subito l'arma in mano. In modalità costruzione, E su una macchina la riprende.
+- **Modalità costruzione** (B): si entra a mano libera. Mirando una macchina o un nastro, E lo sposta e X lo vende a metà prezzo. Con 1-9 o la rotella si prende un oggetto dalla borsa e si piazza su una griglia con anteprima verde o rossa (R ruota). Dopo ogni piazzamento torna subito l'arma in mano.
   - Base Fluffbot: il suo robot raccoglie i pupazzi storditi e li consegna.
   - Sparabot: torretta che spara ai pupazzi vicini.
   - Braccio robotico: messo vicino a un'Imbottitrice, afferra ogni pupazzo che ha a portata (sveglio, stordito o su un nastro) e lo butta nella tramoggia.
   - Esca Lecca-lecca: attira i pupazzi che vagano.
   - Imbottitrice: le lattine escono dallo scivolo nella casella da 1 m davanti. Se lì c'è un nastro lo seguono, altrimenti cadono a terra. Anche la prima Imbottitrice si sposta (B, poi E mirandola).
-  - **Nastri al metro**: si clicca l'inizio e la fine e il percorso a L con la curva si piazza da solo (R cambia il lato della curva). Trasportano tutto quello che ci finisce sopra (lattine, pupazzi storditi) fino all'unica **spedizione**, lo scivolo nel muro ovest con due pezzi di nastro fissi davanti. E su un nastro lo rimuove con rimborso.
+  - **Nastri**: si comprano a pacchi da 10 m, che finiscono nella borsa come le altre macchine. Si clicca l'inizio e la fine e il percorso a L con la curva si piazza da solo (R cambia il lato della curva). Trasportano tutto quello che ci finisce sopra (lattine, pupazzi storditi) fino all'unica **spedizione**, lo scivolo nel muro ovest con due pezzi di nastro fissi davanti. E su un nastro lo rimette nella borsa, X lo vende.
   - Scanner a raggi X: portale da mettere a cavallo di un nastro. Scansiona le lattine che ci passano sotto: quelle con una pepita prendono il coperchio d'oro e il braccio del portale le posa sulla casella laterale (pedana gialla).
   - Estrattore di pepite: accetta solo lattine (da un nastro o lanciate dentro), estrae la pepita e fa uscire la lattina dal davanti.
 - **Lattine**: sono oggetti fisici. Si raccolgono con E e si lanciano con F: il lancio assistito le manda nella spedizione.
 - **Pepite d'oro** nascoste in alcuni pupazzi: non si vedono mai sui pupazzi, e nelle lattine solo dopo il passaggio sotto uno Scanner. La pepita resta sigillata nella lattina e si recupera solo con l'Estrattore. Una lattina con la pepita che arriva alla spedizione viene venduta normalmente e la pepita è persa, senza alcun avviso. Le pepite servono per gli oggetti **leggendari**, che costano almeno 10 pepite: Mega Fluffbot (10), Sparabot Stellare (12), Raggio Arcobaleno (15).
-- **Armi** (tasti 1-5): blaster, Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
-- **Annunci**: solo video facoltativi nella scheda Bonus del terminale. Ogni video vale **1 pepita d'oro**. Non ci sono annunci forzati.
+- **Armi** (tasti 1-6): blaster, Mitragliatrice a schiuma (40 colpi rapidi tenendo premuto), Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
+- **Annunci**: solo video facoltativi nella scheda Bonus del terminale: **+1 pepita d'oro** oppure **monete in proporzione al livello** (100 al livello 1, circa 2.700 al livello 10). Ogni tipo di video si può guardare una volta ogni 3 minuti. Non ci sono annunci forzati.
+- **Robot**: si muovono con un calcolo del percorso (A*) su una griglia da 0,5 m che si aggiorna quando cambia la fabbrica. Ignorano i pupazzi sopra i nastri e lasciano perdere per qualche secondo i bersagli irraggiungibili.
 
 ## Sviluppo
 
@@ -63,7 +64,8 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 | `src/systems/Missions.js` | Missioni a tempo |
 | `src/entities/Belts.js` | Nastri a mattonelle da 1 m, percorsi a L con curva |
 | `src/entities/Items.js` | Lattine come oggetti fisici, trasporto sui nastri, Incartatrice, spedizione |
-| `src/systems/BuildMode.js` | Modalità costruzione: anteprima, griglia, rotazione, raccolta |
+| `src/systems/Nav.js` | Griglia di navigazione e calcolo dei percorsi (A*) per i robot |
+| `src/systems/BuildMode.js` | Modalità costruzione: mano libera (sposta/vendi), anteprima, griglia, rotazione |
 | `src/entities/Machines.js` | Macchine piazzabili (basi, torrette, catapulte, esche, linee, leggendari) |
 | `src/systems/` | Input (mouse/tastiera + touch), audio procedurale, wrapper della piattaforma |
 | `src/ui/UI.js` | HUD, menu, negozio, numeri fluttuanti |
