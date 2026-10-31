@@ -99,7 +99,6 @@ export class Stuffer {
       this.lamps.push(l);
     }
 
-    // output spout towards the belt
     // short chute over the output cell: cans drop out under it
     const spout = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 1.0), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
     spout.position.set(w / 2 + 0.15, LAYOUT.belt.top + 0.55, 0);
@@ -107,51 +106,6 @@ export class Stuffer {
     this.spoutPos = new THREE.Vector3(x + out.x * (w / 2 + 0.3), LAYOUT.belt.top + 0.5, z + out.z * (w / 2 + 0.3));
 
     this.collider = game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
-
-    // Nugget sorter (bought upgrade): a little robot arm on the side drops nuggets into a tray.
-    this.sorter = new THREE.Group();
-    this.group.add(this.sorter);
-    const steel = new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.6, roughness: 0.35 });
-    const gold = new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.7, roughness: 0.25, emissive: 0x553300, emissiveIntensity: 0.6 });
-    const trayMat = new THREE.MeshStandardMaterial({ color: 0x2a2140, roughness: 0.6 });
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.7), trayMat);
-    tray.position.set(0, 0.25, d / 2 + 0.45);
-    this.sorter.add(tray);
-    this.trayNuggets = [];
-    for (let i = 0; i < 6; i++) {
-      const n = new THREE.Mesh(new THREE.OctahedronGeometry(0.09, 0), gold);
-      n.position.set(-0.25 + (i % 3) * 0.25, 0.56, d / 2 + 0.35 + Math.floor(i / 3) * 0.2);
-      n.visible = false;
-      this.sorter.add(n);
-      this.trayNuggets.push(n);
-    }
-    this.armPivot = new THREE.Group();
-    this.armPivot.position.set(0, h, d / 2 - 0.2);
-    this.sorter.add(this.armPivot);
-    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.9), steel);
-    seg.position.z = 0.45;
-    this.armPivot.add(seg);
-    const claw = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), gold);
-    claw.position.z = 0.9;
-    this.armPivot.add(claw);
-    this.sorter.visible = false;
-    this.tray = 0;
-    this.armT = 0;
-    this.trayPos = new THREE.Vector3(0, 0, d / 2 + 0.45).applyEuler(this.group.rotation).add(this.center);
-  }
-
-  sortNugget() {
-    this.tray++;
-    this.armT = 1;
-    Audio.play('sort');
-  }
-
-  // Walking up to the tray collects the nuggets set aside.
-  collectTray() {
-    const n = this.tray;
-    this.tray = 0;
-    this.game.addNuggets(n);
-    this.game.onNuggetFound(this.trayPos.clone().setY(1.2), n);
   }
 
   dispose() {
@@ -214,13 +168,6 @@ export class Stuffer {
   update(dt) {
     if (!this.enabled) return;
     const stats = this.game.stats;
-    this.sorter.visible = stats.sorter;
-    this.armT = Math.max(0, this.armT - dt * 1.5);
-    // swing from the hopper (up) down to the tray and back
-    this.armPivot.rotation.x = -0.9 + Math.sin(this.armT * Math.PI) * 1.6;
-    this.trayNuggets.forEach((m, i) => (m.visible = i < this.tray));
-    const P = this.game.player;
-    if (this.tray > 0 && this.game.state === 'playing' && P.pos.distanceTo(this.trayPos) < 2.2) this.collectTray();
     while (this.working.length < stats.slots && this.queue.length) {
       this.working.push({ ...this.queue.shift(), t: 0 });
     }
@@ -233,10 +180,8 @@ export class Stuffer {
         const out = this.outPos;
         if (this.game.items.isFree(out)) {
           this.working.splice(i, 1);
-          // a nugget inside: the sorter arm sets it aside, otherwise it ends up in the can
-          const sorted = job.nugget && stats.sorter;
-          if (sorted) this.sortNugget();
-          const can = this.game.items.spawnCan(out, this.canValue(job.value), job.type, job.nugget && !sorted);
+          // a nugget inside the plushie ends up sealed (unseen) in the can
+          const can = this.game.items.spawnCan(out, this.canValue(job.value), job.type, job.nugget);
           if (stats.wrap) this.game.items.wrap(can); // Gift Wrapper upgrade: every can comes out wrapped
           // with no belt below, the can tumbles out onto the floor in front of the machine
           if (!this.game.beltNet.under(out)) can.vel.set(this.out.x * 1.5 + (Math.random() - 0.5), 0, this.out.z * 1.5 + (Math.random() - 0.5));
@@ -286,6 +231,5 @@ export class Stuffer {
   reset() {
     this.queue.length = 0;
     this.working.length = 0;
-    this.tray = 0;
   }
 }

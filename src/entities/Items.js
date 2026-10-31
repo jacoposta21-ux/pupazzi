@@ -11,7 +11,7 @@ const CAN_R = 0.2;
 const GAP = 0.5; // minimum spacing between cans riding the same belt
 const canGeo = new THREE.CylinderGeometry(CAN_R, CAN_R, CAN_H, 18);
 const lidMat = new THREE.MeshStandardMaterial({ color: 0xd9dde3, metalness: 0.8, roughness: 0.3 });
-// a can holding a gold nugget has a golden lid
+// once the X-ray Scanner has spotted a nugget inside, the can gets a golden lid
 const goldLidMat = new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.8, roughness: 0.25, emissive: 0x664400, emissiveIntensity: 0.5 });
 const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5 });
 const ribbonGeo = new THREE.BoxGeometry(0.43, 0.44, 0.06);
@@ -32,19 +32,26 @@ export class Can {
     this.kind = 'can';
     this.type = type;
     this.value = value;
-    this.nugget = nugget;
+    this.nugget = nugget; // hidden until an X-ray Scanner looks inside
+    this.revealed = false;
+    this.scanned = false;
     this.wrapped = false;
     this.state = 'loose';
     this.pos = new THREE.Vector3(); // bottom centre
     this.vel = new THREE.Vector3();
-    const lid = nugget ? goldLidMat : lidMat;
-    this.mesh = new THREE.Mesh(canGeo, [canMaterial(type), lid, lid]);
+    this.mesh = new THREE.Mesh(canGeo, [canMaterial(type), lidMat, lidMat]);
     this.mesh.castShadow = true;
     this.mesh.userData.item = this;
     this.def = { scale: 1, color: PLUSHIES[type].color };
   }
 
-  // Returns true (once) if this can held a nugget; the lid goes back to plain metal.
+  // X-ray Scanner found a nugget: mark the can with a golden lid.
+  reveal() {
+    this.revealed = true;
+    this.mesh.material = [this.mesh.material[0], goldLidMat, goldLidMat];
+  }
+
+  // Nugget Extractor: returns true (once) if this can held a nugget; the lid goes back to plain metal.
   takeNugget() {
     if (!this.nugget) return false;
     this.nugget = false;

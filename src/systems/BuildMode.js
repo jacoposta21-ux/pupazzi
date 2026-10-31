@@ -131,7 +131,7 @@ export class BuildMode {
     let solid = [f];
     if (type === 'scanner') {
       const d = dir(rot);
-      solid = [-1.45, 1.45].map((s) => {
+      solid = [-1.95, 1.95].map((s) => {
         const cx = x - d.z * s, cz = z + d.x * s;
         return { minX: cx - 0.25, maxX: cx + 0.25, minZ: cz - 0.25, maxZ: cz + 0.25 };
       });
@@ -272,8 +272,8 @@ export class BuildMode {
     if (this.type === 'belt') return this.updateBelt(input);
     if (!this.type || !this.ghost) return;
     const p = this.aimPoint();
-    // Stuffers snap to whole metres so their output cell lines up with belt tiles
-    const grid = this.type === 'stuffer' ? 1 : GRID;
+    // Stuffers, scanners and extractors snap to whole metres so they line up with belt tiles
+    const grid = ['stuffer', 'scanner', 'extractor'].includes(this.type) ? 1 : GRID;
     p.x = Math.round(p.x / grid) * grid;
     p.z = Math.round(p.z / grid) * grid;
     this.valid = this.check(this.type, p.x, p.z, this.rot);

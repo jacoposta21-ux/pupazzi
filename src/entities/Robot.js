@@ -80,7 +80,6 @@ export class Robot {
     let bestD = range * range;
     for (const p of this.game.plushies.list) {
       if (p.state !== 'ko' || p.claimedBy) continue;
-      if (p.revealed && p.nugget) continue; // leave spotted nuggets for the player to grab by hand
       // plushies already within reach of a working robot arm are the arm's job
       if (this.game.machines.some((m) => m.type === 'arm' && Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z) < 2.6 && m.stuffer)) continue;
       const d = p.pos.distanceToSquared(this.pos);

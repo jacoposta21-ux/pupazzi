@@ -374,54 +374,229 @@ class StufferMachine extends Machine {
   }
 }
 
-// ---------- X-ray Scanner gate: plushies walking (or riding) through get scanned for nuggets ----------
+// ---------- X-ray Scanner gate ----------
+// Stand it across a belt. Anything passing under it is scanned: plushies hiding a nugget start to glow,
+// cans hiding a nugget get a golden lid and the gate's arm lifts them off to the side cell (local +z),
+// where another belt can take them to a Nugget Extractor. Without a belt there, they drop to the floor.
+const GATE_POST = 1.95;
+const LIFT_TIME = 0.7;
+
 class Scanner extends Machine {
   constructor(game, type, x, z, rot) {
     super(game, type, x, z, rot);
     const g = this.group;
     const frame = new THREE.MeshStandardMaterial({ color: 0x3f73c4, roughness: 0.4 });
-    for (const sz of [-1.45, 1.45]) {
+    for (const sz of [-GATE_POST, GATE_POST]) {
       add(g, new THREE.BoxGeometry(0.4, 2.6, 0.3), frame, 0, 1.3, sz);
       add(g, new THREE.BoxGeometry(0.42, 0.12, 0.32), MAT.yellow, 0, 0.06, sz);
     }
-    add(g, new THREE.BoxGeometry(0.5, 0.4, 3.2), frame, 0, 2.7, 0);
-    const lamp = add(g, new THREE.BoxGeometry(0.3, 0.12, 2.6), MAT.glow, 0, 2.45, 0);
+    add(g, new THREE.BoxGeometry(0.5, 0.4, GATE_POST * 2 + 0.3), frame, 0, 2.7, 0);
+    const lamp = add(g, new THREE.BoxGeometry(0.3, 0.12, 1.4), MAT.glow, 0, 2.45, 0);
     lamp.castShadow = false;
-    // the scanning curtain: a translucent blue sheet that flickers
+    // the scanning curtain over the belt
     this.curtain = new THREE.Mesh(
-      new THREE.PlaneGeometry(2.6, 2.4),
+      new THREE.PlaneGeometry(1.4, 2.4),
       new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }),
     );
     this.curtain.rotation.y = Math.PI / 2;
     this.curtain.position.y = 1.2;
     g.add(this.curtain);
+    // side marker: where nugget cans are put down
+    const pad = add(g, new THREE.BoxGeometry(0.9, 0.02, 0.9), MAT.yellow, 0, 0.01, 1);
+    pad.castShadow = false;
+    // the lifting arm: a carriage sliding along the crossbeam with a telescopic claw
+    this.carriage = new THREE.Group();
+    this.carriage.position.y = 2.45;
+    g.add(this.carriage);
+    add(this.carriage, new THREE.BoxGeometry(0.35, 0.2, 0.35), MAT.dark);
+    this.rod = add(this.carriage, new THREE.CylinderGeometry(0.05, 0.05, 1, 8), MAT.white);
+    this.claw = new THREE.Group();
+    this.carriage.add(this.claw);
+    add(this.claw, new THREE.CylinderGeometry(0.16, 0.12, 0.1, 12), MAT.gold);
     this.flash = 0;
-    // only the two posts are solid: plushies walk through the middle
+    this.held = null;
+    this.waiting = [];
+    this.liftT = 0;
+    // only the two posts are solid: plushies walk through, belts run under
     const d = dir(rot);
-    for (const s of [-1.45, 1.45]) {
-      const cx = x - d.z * s, cz = z + d.x * s;
+    this.d = d;
+    for (const sd of [-GATE_POST, GATE_POST]) {
+      const cx = x - d.z * sd, cz = z + d.x * sd;
       this.colliders.push(game.colliders.add(cx - 0.2, cx + 0.2, cz - 0.2, cz + 0.2, 2.6));
     }
     this.area = footprint(type, x, z, rot);
+    this.side = new THREE.Vector3(x - d.z, LAYOUT.belt.top, z + d.x); // centre of the side cell
+  }
+
+  // Local coordinates of a world point: a = along the belt, b = across (towards the side cell).
+  local(p) {
+    const dx = p.x - this.pos.x, dz = p.z - this.pos.z;
+    return { a: dx * this.d.x + dz * this.d.z, b: -dx * this.d.z + dz * this.d.x };
+  }
+
+  setArm(b, drop) {
+    this.carriage.position.z = b;
+    const len = 0.2 + drop;
+    this.rod.scale.y = len;
+    this.rod.position.y = -len / 2;
+    this.claw.position.y = -len;
+  }
+
+  scanFlash(pos) {
+    this.flash = 1;
+    this.game.ui.floater('💎 ?!', pos.clone().setY(pos.y + 1), 'nugget');
+    this.game.ui.toast('nuggetSpotted');
+    Audio.play('scanHit');
   }
 
   update(dt) {
+    const game = this.game;
     this.flash = Math.max(0, this.flash - dt * 2);
     this.curtain.material.opacity = 0.14 + Math.sin(performance.now() / 90) * 0.04 + this.flash * 0.5;
     this.curtain.material.color.setHex(this.flash > 0 ? 0xffd23f : 0x66ccff);
     const a = this.area;
-    for (const p of this.game.plushies.list) {
+
+    // plushies: scanned anywhere under the gate
+    for (const p of game.plushies.list) {
       if (p.scanned || p.state === 'carried' || p.state === 'gone') continue;
       if (p.pos.x < a.minX || p.pos.x > a.maxX || p.pos.z < a.minZ || p.pos.z > a.maxZ) continue;
       p.scanned = true;
       if (p.nugget) {
         p.revealed = true;
-        this.flash = 1;
-        this.game.ui.floater('💎 ?!', p.pos.clone().setY(1.6), 'nugget');
-        this.game.ui.toast('nuggetSpotted');
-        Audio.play('scanHit');
+        this.scanFlash(p.pos);
       } else Audio.play('scan');
     }
+
+    // cans: scanned on the belt line under the gate; nugget cans are lifted aside
+    for (const c of game.items.list) {
+      if (c.scanned || c.state !== 'loose') continue;
+      const l = this.local(c.pos);
+      if (Math.abs(l.a) > 0.5 || Math.abs(l.b) > 0.6 || c.pos.y > 1.6) continue;
+      c.scanned = true;
+      if (!c.nugget) {
+        Audio.play('scan');
+        continue;
+      }
+      c.reveal();
+      this.scanFlash(c.pos);
+      c.state = 'held'; // stop it right here until the arm is free
+      this.waiting.push(c);
+    }
+
+    // the arm: lift one can at a time from the belt to the side cell
+    if (!this.held && this.waiting.length) {
+      this.held = this.waiting.shift();
+      this.liftFrom = this.held.pos.clone();
+      this.liftT = 0;
+    }
+    if (this.held) {
+      const c = this.held;
+      this.liftT = Math.min(1, this.liftT + dt / LIFT_TIME);
+      const k = this.liftT;
+      const top = LAYOUT.belt.top;
+      c.pos.lerpVectors(this.liftFrom, this.side, k);
+      c.pos.y = top + Math.sin(k * Math.PI) * 0.6;
+      c.sync();
+      this.setArm(this.local(c.pos).b, 2.45 - (c.pos.y + 0.5));
+      if (k >= 1) {
+        c.state = 'loose';
+        c.vel.set(0, 0, 0);
+        this.held = null;
+        Audio.play('armDrop');
+      }
+    } else {
+      // idle: park above the belt
+      const z = this.carriage.position.z;
+      this.setArm(z + (0 - z) * Math.min(1, dt * 4), 0.4);
+    }
+  }
+
+  dispose() {
+    // put anything the arm was holding back down
+    for (const c of [this.held, ...this.waiting]) if (c) c.state = 'loose';
+    super.dispose();
+  }
+}
+
+// ---------- Nugget Extractor: only cans go in; nuggets come out, the can carries on out of the front ----------
+const EXTRACT_TIME = 1.2;
+
+class Extractor extends Machine {
+  constructor(game, type, x, z, rot) {
+    super(game, type, x, z, rot);
+    const g = this.group;
+    const body = new THREE.MeshStandardMaterial({ color: 0x2a2140, roughness: 0.45 });
+    add(g, new THREE.BoxGeometry(1, 1.4, 1), body, 0, 0.7, 0);
+    add(g, new THREE.BoxGeometry(1.04, 0.2, 1.04), MAT.gold, 0, 1.4, 0);
+    // funnel on top for thrown cans
+    const funnel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.5, 0.3, 0.35, 16, 1, true),
+      new THREE.MeshStandardMaterial({ color: 0xb8c0cc, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide }),
+    );
+    funnel.position.y = 1.67;
+    g.add(funnel);
+    // output hole on the front (local +x)
+    add(g, new THREE.BoxGeometry(0.05, 0.5, 0.6), MAT.dark, 0.51, LAYOUT.belt.top + 0.25, 0);
+    this.gem = add(g, new THREE.OctahedronGeometry(0.16, 0), MAT.gold, 0, 2.1, 0);
+    this.lamp = add(g, new THREE.SphereGeometry(0.08, 10, 8), MAT.glow, -0.51, 1.1, 0);
+    this.queue = [];
+    this.job = null;
+    this.t = 0;
+    const d = dir(rot);
+    this.out = new THREE.Vector3(x + d.x, LAYOUT.belt.top, z + d.z);
+    this.outDir = new THREE.Vector3(d.x, 0, d.z);
+    this.collide(1.5);
+  }
+
+  update(dt) {
+    const game = this.game;
+    this.gem.rotation.y += dt * (this.job ? 6 : 1.2);
+    this.gem.position.y = 2.1 + Math.sin(performance.now() / 400) * 0.05;
+    // swallow cans that reach it (rolling off a belt, dropped or thrown in)
+    for (const c of [...game.items.list]) {
+      if (c.state !== 'loose' || c.pos.y > 1.9) continue;
+      if (Math.abs(c.pos.x - this.pos.x) > 0.8 || Math.abs(c.pos.z - this.pos.z) > 0.8) continue;
+      if (c.pos.distanceTo(this.out) < 0.45) continue; // the one it just put out
+      game.items.remove(c);
+      this.queue.push(c);
+      Audio.play('can');
+    }
+    if (!this.job && this.queue.length) {
+      this.job = this.queue.shift();
+      this.t = 0;
+    }
+    if (!this.job) return;
+    this.t += dt;
+    this.lamp.material = Math.sin(this.t * 20) > 0 ? MAT.glow : MAT.yellow;
+    if (this.t < EXTRACT_TIME || !game.items.isFree(this.out)) return;
+    const c = this.job;
+    this.job = null;
+    if (c.takeNugget()) {
+      game.addNuggets(1);
+      game.onNuggetFound(this.pos.clone().setY(2.3), 1);
+    }
+    c.revealed = false;
+    // the empty can carries on out of the front, onto a belt or the floor
+    c.pos.copy(this.out);
+    c.vel.set(0, 0, 0);
+    if (!game.beltNet.under(this.out)) c.vel.copy(this.outDir).multiplyScalar(1.2);
+    c.sync();
+    game.scene.add(c.mesh);
+    game.items.list.push(c);
+    this.lamp.material = MAT.glow;
+  }
+
+  dispose() {
+    // cans still inside pop back out
+    for (const c of [this.job, ...this.queue]) {
+      if (!c) continue;
+      c.pos.copy(this.out);
+      c.state = 'loose';
+      c.sync();
+      this.game.scene.add(c.mesh);
+      this.game.items.list.push(c);
+    }
+    super.dispose();
   }
 }
 
@@ -434,6 +609,7 @@ const CLASSES = {
   lure: Lure,
   stuffer: StufferMachine,
   scanner: Scanner,
+  extractor: Extractor,
 };
 
 export function createMachine(game, type, x, z, rot) {
@@ -458,9 +634,13 @@ export function buildGhost(type) {
     // the output cell where cans come out: put the first belt here
     shape(new THREE.BoxGeometry(0.9, 0.05, 0.9), 2, LAYOUT.belt.top, 0);
   } else if (type === 'scanner') {
-    shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, -1.45);
-    shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, 1.45);
-    shape(new THREE.BoxGeometry(0.5, 0.4, 3.2), 0, 2.7, 0);
+    shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, -GATE_POST);
+    shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, GATE_POST);
+    shape(new THREE.BoxGeometry(0.5, 0.4, GATE_POST * 2 + 0.3), 0, 2.7, 0);
+    // side cell where nugget cans are put down
+    shape(new THREE.BoxGeometry(0.9, 0.05, 0.9), 0, LAYOUT.belt.top, 1);
+  } else if (type === 'extractor') {
+    shape(new THREE.BoxGeometry(1, 1.5, 1), 0, 0.75, 0);
   } else if (type === 'turret' || type === 'starTurret') shape(new THREE.CylinderGeometry(0.45, 0.55, 1.2, 12), 0, 0.6, 0);
   else if (type === 'lure') shape(new THREE.CylinderGeometry(0.35, 0.35, 2, 12), 0, 1, 0);
   else if (type === 'arm') {

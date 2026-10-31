@@ -138,7 +138,6 @@ export const UPGRADES = [
 export const UNLOCKS = [
   { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
   { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
-  { id: 'sorter', cat: 'expansion', icon: '🦾', cost: 3000 },
   { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
   { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
   { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
@@ -151,7 +150,8 @@ export const PLACEABLES = [
   { id: 'turret', icon: '🔫', cost: 600, growth: 1.8, size: [1.2, 1.2] },
   { id: 'arm', icon: '🦿', cost: 450, growth: 1.7, size: [1.4, 1.4] },
   { id: 'lure', icon: '🍭', cost: 300, growth: 1.6, size: [1.0, 1.0] },
-  { id: 'scanner', icon: '🩻', cost: 1200, growth: 1.8, size: [1.2, 3.2] },
+  { id: 'scanner', icon: '🩻', cost: 1200, growth: 1.8, size: [1.2, 4.2] },
+  { id: 'extractor', icon: '⛏️', cost: 1500, growth: 1.8, size: [1, 1] },
   { id: 'stuffer', icon: '🏭', cost: 1200, growth: 2.2, size: [3, 3] },
   // legendary: paid with gold nuggets (10+ each)
   { id: 'megadock', icon: '🦾', nuggets: 10, size: [1.8, 1.8], legendary: true },
@@ -222,7 +222,6 @@ export function computeStats(levels, unlocks = {}) {
     slots: 1 + L('slots'),
     queueSize: unlocks.silo ? 6 : 3,
     wrap: !!unlocks.wrapper,
-    sorter: !!unlocks.sorter,
     processTime: 2.6 * Math.pow(0.86, L('process')),
     beltSpeed: 1.3 * (1 + 0.2 * L('belt')),
     valueMult: 1 + 0.15 * L('value'),

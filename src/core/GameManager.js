@@ -426,6 +426,11 @@ export class GameManager {
         decor: [...(save.cosmetics?.decor ?? [])],
       },
     };
+    // the Nugget Sorter upgrade became a placeable Nugget Extractor
+    if (data.unlocks.sorter) {
+      data.inventory.extractor = (data.inventory.extractor || 0) + 1;
+      delete data.unlocks.sorter;
+    }
     // the X-ray scanner used to be a one-off unlock: it is now a placeable gate
     if (data.unlocks.scanner) {
       data.inventory.scanner = (data.inventory.scanner || 0) + 1;

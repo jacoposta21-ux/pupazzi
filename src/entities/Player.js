@@ -247,8 +247,6 @@ export class Player {
 
   grabCan(c) {
     if (this.carried.length >= this.game.stats.carry) return false;
-    // a gold-lidded can hides a nugget: picking it up by hand gets it out
-    if (c.takeNugget()) this.game.onNuggetFound(c.mesh.position.clone().setY(c.pos.y + 0.8));
     c.state = 'carried';
     c.mesh.removeFromParent();
     this.carryAnchor.add(c.mesh);
@@ -262,7 +260,6 @@ export class Player {
   // Puts a plushie in the left hand. Returns false when hands are full.
   grabPlushie(p) {
     if (this.carried.length >= this.game.stats.carry) return false;
-    if (p.extractNugget()) this.game.onNuggetFound(p.pos.clone().setY(1));
     this.game.particles.burst(p.pos.clone().setY(0.5), { count: 5, color: p.def.color, speed: 1, size: 0.05 });
     p.state = 'carried';
     p.claimedBy = null;
@@ -286,7 +283,13 @@ export class Player {
     const from = fromPos ?? this.camera.position;
     const fwd = this.forward;
     const top = this.carried[this.carried.length - 1];
-    const targets = top?.kind === 'can' ? [this.game.items.chuteCenter] : this.game.stuffers.filter((s) => s.enabled).map((s) => s.hopperCenter);
+    let targets;
+    if (top?.kind !== 'can') targets = this.game.stuffers.filter((s) => s.enabled).map((s) => s.hopperCenter);
+    else {
+      // cans go to shipping; a can known to hide a nugget goes to an extractor instead, if there is one
+      const ex = top.revealed && top.nugget ? this.game.machines.filter((m) => m.type === 'extractor').map((m) => m.pos.clone().setY(1.8)) : [];
+      targets = ex.length ? ex : [this.game.items.chuteCenter];
+    }
     let best = null;
     let bestDot = 0.82;
     for (const t of targets) {
