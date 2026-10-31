@@ -209,7 +209,25 @@ export class Player {
         }
       }
     }
-    this.aimingAtStuffer = this.carried.length > 0 && this.stufferAssist() !== null;
+    // loose cans can be picked up too
+    if (!this.aimed) {
+      const hit = this.raycaster.intersectObjects(this.game.items.meshes(), false)[0];
+      if (hit && hit.distance < GRAB_RANGE + 1.2) this.aimed = hit.object.userData.item;
+    }
+    if (!this.aimed) {
+      const fwd = this.forward.setY(0).normalize();
+      let best = 2;
+      for (const c of this.game.items.list) {
+        if (c.state !== 'loose') continue;
+        _v.subVectors(c.pos, this.pos).setY(0);
+        const d = _v.length();
+        if (d < best && _v.normalize().dot(fwd) > 0.5) {
+          best = d;
+          this.aimed = c;
+        }
+      }
+    }
+    this.aimingAtStuffer = this.carried.length > 0 && this.throwAssist() !== null;
     // the shop terminal: close and roughly in front
     const T = this.game.terminalPos;
     _v.subVectors(T, this.pos).setY(0);
@@ -220,10 +238,23 @@ export class Player {
   tryGrab() {
     const p = this.aimed;
     if (!p) return;
-    if (!this.grabPlushie(p)) {
+    const ok = p.kind === 'can' ? this.grabCan(p) : this.grabPlushie(p);
+    if (!ok) {
       this.game.ui.toast('handsFull');
       Audio.play('empty');
     }
+  }
+
+  grabCan(c) {
+    if (this.carried.length >= this.game.stats.carry) return false;
+    c.state = 'carried';
+    c.mesh.removeFromParent();
+    this.carryAnchor.add(c.mesh);
+    this.carried.push(c);
+    this.vm.layoutCarried(this.carried);
+    this.vm.playGrab();
+    Audio.play('can');
+    return true;
   }
 
   // Puts a plushie in the left hand. Returns false when hands are full.
@@ -247,24 +278,26 @@ export class Player {
     return true;
   }
 
-  // Ballistic velocity that lands in the hopper, or null if the Stuffer isn't roughly ahead.
-  stufferAssist(fromPos) {
+  // Ballistic velocity towards the right target for what's in hand — a Stuffer hopper for plushies,
+  // the shipping chute for cans — or null if no target is roughly ahead.
+  throwAssist(fromPos) {
     const from = fromPos ?? this.camera.position;
     const fwd = this.forward;
+    const top = this.carried[this.carried.length - 1];
+    const targets = top?.kind === 'can' ? [this.game.items.chuteCenter] : this.game.stuffers.filter((s) => s.enabled).map((s) => s.hopperCenter);
     let best = null;
     let bestDot = 0.82;
-    for (const s of this.game.stuffers) {
-      if (!s.enabled) continue;
-      _v.subVectors(s.hopperCenter, from);
+    for (const t of targets) {
+      _v.subVectors(t, from);
       if (Math.hypot(_v.x, _v.z) > THROW_ASSIST_RANGE) continue;
       const dot = fwd.dot(_v2.copy(_v).normalize());
       if (dot > bestDot) {
         bestDot = dot;
-        best = s;
+        best = t;
       }
     }
     if (!best) return null;
-    _v.subVectors(best.hopperCenter, from);
+    _v.subVectors(best, from);
     const flat = Math.hypot(_v.x, _v.z);
     const T = THREE.MathUtils.clamp(flat / 8, 0.35, 1.0);
     return new THREE.Vector3(_v.x / T, _v.y / T + 0.5 * GRAVITY * T, _v.z / T);
@@ -276,9 +309,19 @@ export class Player {
     const fwd = this.forward;
     const start = this.camera.position.clone().addScaledVector(fwd, 0.7);
     start.y -= 0.25;
-    const vel = this.stufferAssist(start) ?? fwd.clone().multiplyScalar(11).add(new THREE.Vector3(0, 2.5, 0));
+    this.carried.push(p); // throwAssist looks at what's on top
+    const vel = this.throwAssist(start) ?? fwd.clone().multiplyScalar(11).add(new THREE.Vector3(0, 2.5, 0));
+    this.carried.pop();
     vel.x += this.vel.x * 0.5;
     vel.z += this.vel.z * 0.5;
+    p.mesh.visible = true;
+    if (p.kind === 'can') {
+      this.game.items.throwCan(p, start, vel);
+      this.vm.layoutCarried(this.carried);
+      this.vm.playThrow();
+      Audio.play('throw');
+      return;
+    }
     p.mesh.removeFromParent();
     p.mesh.scale.setScalar(p.def.scale);
     p.mesh.rotation.set(0, this.yaw, 0);
@@ -294,6 +337,7 @@ export class Player {
   dropAll() {
     while (this.carried.length) {
       const p = this.carried.pop();
+      p.mesh.visible = true;
       p.mesh.removeFromParent();
       p.mesh.scale.setScalar(p.def.scale);
       p.mesh.rotation.set(0, 0, 0);

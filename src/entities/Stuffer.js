@@ -174,9 +174,11 @@ export class Stuffer {
       const job = this.working[i];
       job.t += dt;
       if (job.t >= stats.processTime) {
-        if (this.conveyor.hasRoom()) {
+        // drop the can at the start of the belt, if that spot is free
+        const out = this.conveyor.start.clone().addScaledVector(this.conveyor.dir, 0.3);
+        if (this.game.items.isFree(out)) {
           this.working.splice(i, 1);
-          this.conveyor.addCan(this.canValue(job.value), job.type);
+          this.game.items.spawnCan(out, this.canValue(job.value), job.type);
           this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });
         } else {
           this.blocked = true;

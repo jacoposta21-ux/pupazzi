@@ -221,13 +221,21 @@ export class Viewmodel {
     arm.rotation.copy(POSE.support.rot);
   }
 
+  // Only the item on top of the load sits in the hand; the rest of the load is shown in the HUD.
   layoutCarried(carried) {
-    const n = carried.length;
-    const spacing = Math.min(0.2, 0.9 / Math.max(1, n));
     carried.forEach((p, i) => {
-      p.mesh.position.set(0, i * spacing, 0);
-      p.mesh.rotation.set(0, 0.35, 0);
-      p.mesh.scale.setScalar(CARRY_SCALE * p.def.scale);
+      const top = i === carried.length - 1;
+      p.mesh.visible = top;
+      if (!top) return;
+      if (p.kind === 'can') {
+        p.mesh.position.set(0, 0.1, -0.01);
+        p.mesh.rotation.set(0, 0.6, 0);
+        p.mesh.scale.setScalar(0.45);
+      } else {
+        p.mesh.position.set(0, 0, 0);
+        p.mesh.rotation.set(0, 0.35, 0);
+        p.mesh.scale.setScalar(CARRY_SCALE * Math.min(1, p.def.scale)); // big ones shrink to fit the hand
+      }
     });
   }
 

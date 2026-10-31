@@ -80,6 +80,7 @@ export class Robot {
     let bestD = range * range;
     for (const p of this.game.plushies.list) {
       if (p.state !== 'ko' || p.claimedBy) continue;
+      if (p.revealed && p.nugget) continue; // leave spotted nuggets for the player to grab by hand
       const d = p.pos.distanceToSquared(this.pos);
       if (d < bestD) {
         bestD = d;

@@ -1,28 +1,14 @@
-// Conveyor belt carrying cans from a Stuffer to a shipping chute in the wall, with back-pressure.
+// Conveyor belt: a moving surface. Anything loose resting on top (cans, knocked-out plushies) is carried
+// along `dir` by the ItemManager; at the end it drops off. The main line ends in the wall shipping chute.
 // Optional Gift Wrapper arch halfway along: wrapped cans are worth more.
 import * as THREE from 'three';
-import { LAYOUT, PLUSHIES, WRAP_BONUS } from '../data/config.js';
-import { beltTexture, labelTexture, hazardTexture, signTexture } from '../world/Textures.js';
-import { Audio } from '../systems/Audio.js';
+import { LAYOUT } from '../data/config.js';
+import { beltTexture, hazardTexture, signTexture } from '../world/Textures.js';
 
-const CAN_GAP = 0.55;
-const canGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.42, 18);
-const lidMat = new THREE.MeshStandardMaterial({ color: 0xd9dde3, metalness: 0.8, roughness: 0.3 });
-const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5 });
-const ribbonGeo = new THREE.BoxGeometry(0.43, 0.44, 0.06);
-const bowGeo = new THREE.TorusGeometry(0.07, 0.025, 6, 12);
-const canMats = new Map();
-
-function canMaterial(type) {
-  if (!canMats.has(type)) {
-    const color = '#' + PLUSHIES[type].color.toString(16).padStart(6, '0');
-    canMats.set(type, new THREE.MeshStandardMaterial({ map: labelTexture(color), roughness: 0.5, metalness: 0.2 }));
-  }
-  return canMats.get(type);
-}
+const LIP = 0.45;
 
 export class Conveyor {
-  // cfg: { start: {x, z}, dir: {x, z} (axis-aligned unit), length, end: 'wall' | 'crate' }
+  // cfg: { start: {x, z}, dir: {x, z} (axis-aligned unit), length, end: 'wall' | 'none', wrapper: bool }
   constructor(game, cfg) {
     this.game = game;
     this.enabled = true;
@@ -32,8 +18,9 @@ export class Conveyor {
     this.dir = new THREE.Vector3(dir.x, 0, dir.z);
     this.length = length;
     this.end = this.start.clone().addScaledVector(this.dir, length);
+    this.top = top;
     this.wrapAt = length * 0.5;
-    this.cans = [];
+    this.hasWrapper = cfg.wrapper !== false;
     this.colliders = [];
     // Everything is built along local +x from the start point, then the group is rotated.
     this.group = new THREE.Group();
@@ -77,22 +64,6 @@ export class Conveyor {
       sign.position.set(len + 0.39, 3.1, 0);
       sign.rotation.y = -Math.PI / 2;
       this.group.add(sign);
-    } else {
-      // Shipping crate: cans drop in and get paid
-      const crate = new THREE.Group();
-      crate.position.set(len + 0.65, 0, 0);
-      this.group.add(crate);
-      const wood = new THREE.MeshStandardMaterial({ color: 0x3f73c4, roughness: 0.7 });
-      add(new THREE.BoxGeometry(1.3, 0.85, 1.6), wood, 0, 0.425, 0, crate);
-      add(new THREE.BoxGeometry(1.1, 0.05, 1.4), new THREE.MeshStandardMaterial({ color: 0x15121c }), 0, 0.86, 0, crate);
-      const label = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.2, 0.3),
-        new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
-      );
-      label.position.set(0.66, 0.5, 0);
-      label.rotation.y = Math.PI / 2;
-      crate.add(label);
-      this.colliders.push(this.addRect(len, len + 1.3, -0.8, 0.8, 0.85));
     }
 
     // Gift Wrapper arch (shown when bought)
@@ -106,15 +77,38 @@ export class Conveyor {
       const bow = add(new THREE.TorusGeometry(0.14, 0.05, 8, 16), bowMat, 0, 1.75, sz, this.wrapper);
       bow.rotation.y = Math.PI / 2;
     }
-    const label = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.4, 0.26),
-      new THREE.MeshBasicMaterial({ map: signTexture('GIFT WRAP', '#7a4fd1'), toneMapped: false, side: THREE.DoubleSide }),
-    );
-    label.position.set(-0.18, 1.45, 0);
-    label.rotation.y = Math.PI / 2;
-    this.wrapper.add(label);
+    // one label per side so the text reads correctly from both directions
+    const labelMat = new THREE.MeshBasicMaterial({ map: signTexture('GIFT WRAP', '#7a4fd1'), toneMapped: false });
+    for (const sx of [-1, 1]) {
+      const label = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.26), labelMat);
+      label.position.set(sx * 0.18, 1.45, 0);
+      label.rotation.y = (sx * Math.PI) / 2;
+      this.wrapper.add(label);
+    }
     this.wrapper.visible = false;
     this.group.add(this.wrapper);
+    // direction chevrons are in the belt texture; short belts get a painted arrow too
+    if (length <= 3) {
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 3), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+      arrow.rotation.z = -Math.PI / 2; // point along local +x
+      arrow.scale.z = 0.25; // flat, painted on the belt
+      arrow.position.set(length / 2, top + 0.06, 0);
+      this.group.add(arrow);
+    }
+  }
+
+  // Local belt coordinate (distance along the belt, sideways offset) of a world point.
+  local(p) {
+    const dx = p.x - this.start.x, dz = p.z - this.start.z;
+    return { s: dx * this.dir.x + dz * this.dir.z, side: -dx * this.dir.z + dz * this.dir.x };
+  }
+
+  // Is a point resting on the belt surface? The far end has a short lip so items bridge
+  // small gaps to the next belt (grid snapping can leave up to ~0.4 m between belts).
+  carries(p, margin = 0.05) {
+    if (!this.enabled || Math.abs(p.y - this.top) > 0.2) return false;
+    const { s, side } = this.local(p);
+    return s >= -margin && s <= this.length + LIP && Math.abs(side) <= 0.66;
   }
 
   // Adds a collider for a rectangle given in belt-local coordinates (x along the belt).
@@ -128,7 +122,6 @@ export class Conveyor {
   }
 
   dispose() {
-    this.flush();
     this.group.removeFromParent();
     for (const c of this.colliders) this.game.colliders.remove(c);
     const i = this.game.solids.indexOf(this.belt);
@@ -145,76 +138,10 @@ export class Conveyor {
   }
 
   setWrapper(on) {
-    this.wrapper.visible = on;
-  }
-
-  hasRoom() {
-    const last = this.cans[this.cans.length - 1];
-    return !last || last.s >= CAN_GAP;
-  }
-
-  addCan(value, type) {
-    const mesh = new THREE.Mesh(canGeo, [canMaterial(type), lidMat, lidMat]);
-    mesh.castShadow = this.game.shadows;
-    mesh.rotation.y = Math.PI / 2;
-    this.game.scene.add(mesh);
-    const can = { mesh, s: 0, value, drop: 0.5, wrapped: false };
-    this.cans.push(can);
-    this.place(can);
-    Audio.play('can');
-  }
-
-  wrap(can) {
-    can.wrapped = true;
-    can.value = Math.round(can.value * WRAP_BONUS);
-    const r = new THREE.Mesh(ribbonGeo, ribbonMat);
-    can.mesh.add(r);
-    const r2 = new THREE.Mesh(ribbonGeo, ribbonMat);
-    r2.rotation.y = Math.PI / 2;
-    can.mesh.add(r2);
-    for (const a of [-0.6, 0.6]) {
-      const bow = new THREE.Mesh(bowGeo, ribbonMat);
-      bow.position.y = 0.26;
-      bow.rotation.set(0, a, 0.5 * Math.sign(a));
-      can.mesh.add(bow);
-    }
-    this.game.particles.burst(can.mesh.position, { count: 6, color: 0xffd23f, speed: 1.2, size: 0.04, up: 1.5 });
-    Audio.play('wrap');
-  }
-
-  place(can) {
-    can.mesh.position.copy(this.start).addScaledVector(this.dir, can.s);
-    can.mesh.position.y += 0.21 + can.drop;
+    this.wrapper.visible = on && this.hasWrapper;
   }
 
   update(dt, speed) {
-    if (!this.enabled) return;
-    this.tex.offset.x += (speed * dt) / 1.2;
-    const wrapOn = this.wrapper.visible;
-    let limit = Infinity;
-    // cans are ordered from oldest (front) to newest (back)
-    for (const c of this.cans) {
-      c.s = Math.min(c.s + speed * dt, limit - CAN_GAP);
-      c.drop = Math.max(0, c.drop - dt * 3);
-      limit = c.s;
-      this.place(c);
-      if (wrapOn && !c.wrapped && c.s >= this.wrapAt) this.wrap(c);
-    }
-    while (this.cans.length && this.cans[0].s >= this.length) {
-      const c = this.cans.shift();
-      c.mesh.removeFromParent();
-      this.game.bus.emit('canSold', { value: c.value, pos: c.mesh.position.clone() });
-    }
-  }
-
-  // End of day: everything on the belt ships instantly. Returns total value.
-  flush() {
-    let total = 0;
-    for (const c of this.cans) {
-      total += c.value;
-      c.mesh.removeFromParent();
-    }
-    this.cans.length = 0;
-    return total;
+    if (this.enabled) this.tex.offset.x += (speed * dt) / 1.2;
   }
 }

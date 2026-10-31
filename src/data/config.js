@@ -132,7 +132,6 @@ export const UPGRADES = [
 export const UNLOCKS = [
   { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
   { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
-  { id: 'scanner', cat: 'expansion', icon: '🩻', cost: 2500 },
   { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
   { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
   { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
@@ -145,10 +144,12 @@ export const PLACEABLES = [
   { id: 'turret', icon: '🔫', cost: 600, growth: 1.8, size: [1.2, 1.2] },
   { id: 'catapult', icon: '🪃', cost: 450, growth: 1.7, size: [1.8, 1.8] },
   { id: 'lure', icon: '🍭', cost: 300, growth: 1.6, size: [1.0, 1.0] },
-  { id: 'line', icon: '🏭', cost: 1500, growth: 2.4, size: [10.5, 3.2] },
-  // legendary: paid with gold nuggets
-  { id: 'megadock', icon: '🦾', nuggets: 5, size: [1.8, 1.8], legendary: true },
-  { id: 'starTurret', icon: '🌟', nuggets: 8, size: [1.4, 1.4], legendary: true },
+  { id: 'belt', icon: '➡️', cost: 60, growth: 1.06, size: [2, 1.4] },
+  { id: 'scanner', icon: '🩻', cost: 1200, growth: 1.8, size: [1.2, 3.2] },
+  { id: 'line', icon: '🏭', cost: 1500, growth: 2.4, size: [9, 3.2] },
+  // legendary: paid with gold nuggets (10+ each)
+  { id: 'megadock', icon: '🦾', nuggets: 10, size: [1.8, 1.8], legendary: true },
+  { id: 'starTurret', icon: '🌟', nuggets: 12, size: [1.4, 1.4], legendary: true },
 ];
 
 export function placeableCost(def, bought) {
@@ -156,10 +157,9 @@ export function placeableCost(def, bought) {
 }
 
 // Legendary weapon bought with nuggets.
-export const LEGENDARY_WEAPONS = [{ id: 'rainbow', icon: '🌈', nuggets: 10 }];
+export const LEGENDARY_WEAPONS = [{ id: 'rainbow', icon: '🌈', nuggets: 15 }];
 
-export const XRAY_AD_SECONDS = 90;
-export const GOLD_TRUCK_COUNT = 8;
+export const AD_NUGGETS = 1; // a rewarded video pays one gold nugget
 
 // Weapon tuning. The blaster's numbers come from upgrades (see computeStats).
 export const WEAPONS = {

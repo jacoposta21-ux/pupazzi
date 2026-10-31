@@ -146,8 +146,9 @@ const SFX = {
   nugget() {
     [1318, 1760, 2093, 2637].forEach((f, i) => tone({ freq: f, type: 'sine', dur: 0.25, vol: 0.12, delay: i * 0.07 }));
   },
-  xrayOn() {
-    tone({ freq: 300, to: 1800, type: 'sawtooth', dur: 0.25, vol: 0.05 });
+  scan: () => tone({ freq: 1500, to: 1700, type: 'sine', dur: 0.06, vol: 0.04 }),
+  scanHit() {
+    [880, 1320, 880, 1320].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.08, vol: 0.06, delay: i * 0.09 }));
   },
   shutter: () => noise({ dur: 0.7, vol: 0.06, freq: 700, type: 'bandpass' }),
   rainbow() {

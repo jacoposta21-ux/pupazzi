@@ -17,7 +17,7 @@ const lerpAngle = (a, b, t) => {
 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
-// Gold nugget hidden inside some plushies: only visible through the X-ray scanner.
+// Gold nugget hidden inside some plushies: revealed when the plushie walks through an X-ray Scanner.
 const nuggetGeo = new THREE.OctahedronGeometry(0.16, 0);
 const nuggetMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true, opacity: 0.95 });
 const haloMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0, depthTest: false, transparent: true, opacity: 0.35 });
@@ -147,7 +147,6 @@ export class Plushie {
 
   update(dt, ctx) {
     this.anim += dt;
-    this.xray = !!ctx.xray;
     this.squash = Math.max(0, this.squash - dt * 5);
     this.rejectCooldown = Math.max(0, this.rejectCooldown - dt);
     let speed = 0;
@@ -240,11 +239,22 @@ export class Plushie {
     }
 
     if (this.state !== 'thrown' && this.state !== 'hop' && this.state !== 'carried') {
-      // knockback / slide
-      this.pos.addScaledVector(this.vel, dt);
-      this.vel.multiplyScalar(Math.max(0, 1 - dt * 6));
-      this.pos.y = 0;
-      ctx.colliders.resolve(this.pos, this.radius, 0);
+      // knockback / slide (horizontal)
+      this.pos.x += this.vel.x * dt;
+      this.pos.z += this.vel.z * dt;
+      const k = Math.max(0, 1 - dt * 6);
+      this.vel.x *= k;
+      this.vel.z *= k;
+      // vertical: rest on whatever is below (floor, belt) or fall off its edge
+      const ground = ctx.colliders.groundHeight(this.pos, this.radius * 0.6, this.pos.y + 0.05);
+      if (this.pos.y > ground + 0.001) {
+        this.vel.y -= GRAVITY * dt;
+        this.pos.y = Math.max(ground, this.pos.y + this.vel.y * dt);
+      } else {
+        this.pos.y = ground;
+        this.vel.y = 0;
+      }
+      ctx.colliders.resolve(this.pos, this.radius, this.pos.y);
       this.pos.x = THREE.MathUtils.clamp(this.pos.x, B.minX, B.maxX);
       this.pos.z = THREE.MathUtils.clamp(this.pos.z, B.minZ, B.maxZ);
     }
@@ -297,7 +307,7 @@ export class Plushie {
     }
     const ground = ctx.colliders.groundHeight(this.pos, this.radius, this.pos.y + 0.05);
     if (this.pos.y <= ground) {
-      this.pos.y = 0;
+      this.pos.y = ground; // may land on top of a belt
       this.vel.set(this.vel.x * 0.3, 0, this.vel.z * 0.3);
       this.body.rotation.x = 0;
       this.squash = 1;
@@ -327,7 +337,7 @@ export class Plushie {
     for (const e of this.eyes) e.scale.y = THREE.MathUtils.lerp(e.scale.y, 0.05 * eyeY, Math.min(1, dt * 15));
 
     if (this.nuggetMarker) {
-      this.nuggetMarker.visible = this.xray && this.nugget;
+      this.nuggetMarker.visible = this.revealed && this.nugget;
       if (this.nuggetMarker.visible) {
         this.nuggetMarker.rotation.y += dt * 3;
         this.nuggetMarker.scale.setScalar(1 + Math.sin(this.anim * 6) * 0.15);

@@ -11,15 +11,18 @@ Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I 
 - **Livello della fabbrica**: sale con i guadagni totali (soglie in `src/data/config.js`). Porta nuovi pupazzi, camion più grandi e lattine più preziose.
 - **Missioni a tempo** facoltative, una alla volta, per esempio "Imbottisci 8 pupazzi in 75 s": danno soldi e a volte una pepita.
 - **Terminale** fisico in fabbrica (E): negozio diviso in Potenziamenti, Macchine, Fabbrica e armi, Leggendari, Stile e Bonus.
-- **Piazzamento libero** (B): le macchine comprate finiscono nella borsa. Si piazzano su una griglia da 0,5 m con anteprima verde o rossa, si ruotano con R e si raccolgono con E.
+- **Piazzamento libero** (B): le macchine comprate finiscono nella borsa. Si piazzano su una griglia da 0,5 m con anteprima verde o rossa e si ruotano con R. Dopo ogni piazzamento torna subito l'arma in mano. In modalità costruzione, E su una macchina la riprende.
   - Base Fluffbot: il suo robot raccoglie i pupazzi storditi e li consegna.
   - Sparabot: torretta che spara ai pupazzi vicini.
   - Catapulta: lancia nella tramoggia i pupazzi storditi che finiscono sulla sua pedana.
   - Esca Lecca-lecca: attira i pupazzi che vagano.
-  - Linea di produzione: Imbottitrice con nastro e cassa di spedizione.
-- **Pepite d'oro** nascoste in alcuni pupazzi. Escono quando afferri il pupazzo a mano (non con i robot). Per vederle servono lo **scanner a raggi X** (tasto X) oppure un video bonus. Si spendono per gli oggetti **leggendari**: Mega Fluffbot, Sparabot Stellare e Raggio Arcobaleno.
+  - Linea di produzione: Imbottitrice con nastro. Le lattine cadono in fondo al nastro.
+  - Nastro: trasporta tutto quello che ci finisce sopra (lattine, pupazzi storditi). Collegando più nastri le lattine arrivano all'unica **spedizione** (lo scivolo nel muro della linea principale).
+  - Scanner a raggi X: portale che scansiona i pupazzi che ci passano sotto. Quelli con una pepita si illuminano, e i robot li lasciano al giocatore.
+- **Lattine**: sono oggetti fisici. Si raccolgono con E e si lanciano con F: il lancio assistito le manda nella spedizione.
+- **Pepite d'oro** nascoste in alcuni pupazzi. Escono quando afferri il pupazzo a mano (non con i robot). Si trovano con lo Scanner a raggi X e si spendono per gli oggetti **leggendari**, che costano almeno 10 pepite: Mega Fluffbot (10), Sparabot Stellare (12), Raggio Arcobaleno (15).
 - **Armi** (tasti 1-5): blaster, Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
-- **Annunci**: solo video facoltativi con premio nella scheda Bonus del terminale (raggi X per 90 s, camion d'oro, bonus in contanti). Non ci sono annunci forzati.
+- **Annunci**: solo video facoltativi nella scheda Bonus del terminale. Ogni video vale **1 pepita d'oro**. Non ci sono annunci forzati.
 
 ## Sviluppo
 
@@ -57,6 +60,7 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 | `src/world/Decor.js` | Decorazioni acquistabili della fabbrica |
 | `src/systems/Tutorial.js` | Tutorial guidato (fino al terminale) |
 | `src/systems/Missions.js` | Missioni a tempo |
+| `src/entities/Items.js` | Lattine come oggetti fisici, trasporto sui nastri, Incartatrice, spedizione |
 | `src/systems/BuildMode.js` | Modalità costruzione: anteprima, griglia, rotazione, raccolta |
 | `src/entities/Machines.js` | Macchine piazzabili (basi, torrette, catapulte, esche, linee, leggendari) |
 | `src/systems/` | Input (mouse/tastiera + touch), audio procedurale, wrapper della piattaforma |

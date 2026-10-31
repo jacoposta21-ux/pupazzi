@@ -2,7 +2,7 @@
 // and pick placed ones back up. A translucent ghost snaps to a 0.5 m grid in front of the player.
 import * as THREE from 'three';
 import { LAYOUT } from '../data/config.js';
-import { buildGhost, footprint } from '../entities/Machines.js';
+import { buildGhost, footprint, dir } from '../entities/Machines.js';
 import { Audio } from './Audio.js';
 
 const GRID = 0.5;
@@ -92,13 +92,29 @@ export class BuildMode {
   }
 
   // Is the footprint free (inside the floor, no walls, machines or reserved areas)?
+  // The scanner gate is open in the middle: only its two posts need free space, so belts can run under it.
   check(type, x, z, rot) {
     const f = footprint(type, x, z, rot);
     const F = LAYOUT.floor;
     if (f.minX < F.minX + 0.3 || f.maxX > F.maxX - 0.3 || f.minZ < F.minZ + 0.3 || f.maxZ > F.maxZ - 0.3) return false;
     for (const k of KEEP_CLEAR) if (overlaps(f, k)) return false;
-    for (const b of this.game.colliders.boxes) if (!b.disabled && b.height > 0.05 && overlaps(f, b)) return false;
-    for (const m of this.game.machines) if (overlaps(f, footprint(m.type, m.pos.x, m.pos.z, m.rot))) return false;
+    let solid = [f];
+    if (type === 'scanner') {
+      const d = dir(rot);
+      solid = [-1.45, 1.45].map((s) => {
+        const cx = x - d.z * s, cz = z + d.x * s;
+        return { minX: cx - 0.25, maxX: cx + 0.25, minZ: cz - 0.25, maxZ: cz + 0.25 };
+      });
+    }
+    for (const r of solid) {
+      for (const b of this.game.colliders.boxes) if (!b.disabled && b.height > 0.05 && overlaps(r, b)) return false;
+      for (const m of this.game.machines) {
+        const mf = footprint(m.type, m.pos.x, m.pos.z, m.rot);
+        // a gate placed over belts: its middle may overlap them
+        if (m.type === 'scanner' && type === 'belt') continue;
+        if (overlaps(r, mf)) return false;
+      }
+    }
     return true;
   }
 
@@ -148,7 +164,8 @@ export class BuildMode {
         return;
       }
       game.placeMachine(this.type, this.pos.x, this.pos.z, this.rot);
-      if (!game.data.inventory[this.type]) this.select(this.inventoryTypes[0] ?? null);
+      // back to the blaster right away; press B again to place more
+      this.exit();
     }
   }
 }

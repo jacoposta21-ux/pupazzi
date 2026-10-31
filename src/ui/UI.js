@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { t, applyI18n, lang } from '../i18n.js';
 import {
-  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, XRAY_AD_SECONDS,
+  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS,
   upgradeCost, placeableCost, levelThreshold, MAX_LEVEL,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
@@ -206,12 +206,6 @@ export class UI {
     else truck = t('truckIn', { s: Math.max(0, Math.ceil(g.nextTruck)) });
     this.set('hud-truck', truck);
 
-    // X-ray
-    const xr = g.xrayActive;
-    this.show('xray-overlay', xr);
-    this.show('hud-xray', xr || !!D.unlocks.scanner);
-    this.set('hud-xray', g.xrayTimer > 0 ? t('xrayTimer', { s: Math.ceil(g.xrayTimer) }) : t(g.xrayOn ? 'xrayOnHint' : 'xrayOffHint'));
-
     // machines
     const busy = g.stuffers.reduce((n, x) => n + x.busy, 0);
     const queued = g.stuffers.reduce((n, x) => n + x.queue.length, 0);
@@ -229,7 +223,10 @@ export class UI {
       this.set('mission-time', m.done ? `+${this.money(m.reward)}${m.nugget ? ' 💎' : ''}` : `⏱ ${Math.ceil(m.time)}s · ${this.money(m.reward)}${m.nugget ? ' 💎' : ''}`);
     }
 
-    this.set('hud-carry', t('carry', { n: p.carried.length, max: st.carry }));
+    // the load: one icon per carried item (the one in hand is the last)
+    const icons = p.carried.map((it) => (it.kind === 'can' ? '🥫' : '🧸'));
+    const shown = icons.length > 8 ? icons.slice(-8).join('') + `+${icons.length - 8}` : icons.join('');
+    this.set('hud-carry', `${shown || '✋'} <small>${p.carried.length}/${st.carry}</small>`);
 
     // build mode vs weapons
     const B = g.build;
@@ -269,7 +266,10 @@ export class UI {
     const touch = g.isTouch;
     let prompt = '';
     if (B.active) prompt = B.hovered && !B.type ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
-    else if (p.aimed) prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name: t('p_' + p.aimed.type) });
+    else if (p.aimed) {
+      const name = p.aimed.kind === 'can' ? t('canName') : t('p_' + p.aimed.type) + (p.aimed.revealed && p.aimed.nugget ? ' 💎' : '');
+      prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name });
+    }
     else if (p.atTerminal) prompt = t('terminalHint', { key: touch ? '✋ ' : '[E] ' });
     else if (p.aimingAtStuffer) prompt = t('throwHint', { key: touch ? '🎯 ' : '[F] ' });
     this.set('prompt', prompt);
@@ -472,28 +472,21 @@ export class UI {
         });
       }
     } else {
-      // Bonus: rewarded ads only
+      // Bonus: rewarded ads only — each video pays a gold nugget
       note(Platform.canRewarded ? 'bonusNote' : 'bonusUnavailable');
-      const offers = [
-        { id: 'xray', icon: '🩻', vars: { s: XRAY_AD_SECONDS } },
-        { id: 'goldTruck', icon: '🚚' },
-        { id: 'cash', icon: '💰', vars: { v: this.money(g.adCashReward) } },
-      ];
-      for (const o of offers) {
-        card({
-          disabled: !Platform.canRewarded || (o.id === 'goldTruck' && g.goldTruckPending),
-          cls: ['ad-offer'],
-          html: `
-            <div class="name">${o.icon} ${t('ad_' + o.id)}</div>
-            <div class="desc">${t('adD_' + o.id, o.vars)}</div>
-            <div class="row"><span></span><span class="cost">📺 ${t('watchAd')}</span></div>`,
-          onClick: async () => {
-            const ok = await g.watchAd(o.id);
-            if (ok) this.toast('adThanks');
-            return true;
-          },
-        });
-      }
+      card({
+        disabled: !Platform.canRewarded,
+        cls: ['ad-offer'],
+        html: `
+          <div class="name">💎 ${t('ad_nugget', { n: AD_NUGGETS })}</div>
+          <div class="desc">${t('adD_nugget')}</div>
+          <div class="row"><span></span><span class="cost">📺 ${t('watchAd')}</span></div>`,
+        onClick: async () => {
+          const ok = await g.watchAd();
+          if (ok) this.toast('adThanks');
+          return true;
+        },
+      });
     }
   }
 }

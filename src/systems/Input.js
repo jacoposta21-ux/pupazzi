@@ -182,9 +182,6 @@ export class Input {
   get buildPressed() {
     return this.pressed.has('KeyB') || this.touchPressed.has('build');
   }
-  get xrayPressed() {
-    return this.pressed.has('KeyX') || this.touchPressed.has('xray');
-  }
   get rotatePressed() {
     return this.pressed.has('KeyR') || this.touchPressed.has('reload');
   }

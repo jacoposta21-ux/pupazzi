@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import {
   SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, UPGRADES, QUALITY, UNLOCKS, COSMETICS, DEFAULT_EQUIP,
-  PLACEABLES, LEGENDARY_WEAPONS, GOAL, XRAY_AD_SECONDS, GOLD_TRUCK_COUNT,
-  computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned, levelValueMult,
+  PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS,
+  computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
@@ -19,6 +19,7 @@ import { PlushieManager } from '../entities/Plushies.js';
 import { Player } from '../entities/Player.js';
 import { Truck } from '../entities/Truck.js';
 import { createMachine } from '../entities/Machines.js';
+import { ItemManager } from '../entities/Items.js';
 import { Tutorial } from '../systems/Tutorial.js';
 import { Missions } from '../systems/Missions.js';
 import { BuildMode } from '../systems/BuildMode.js';
@@ -49,12 +50,10 @@ export class GameManager {
     this.machines = [];
     this.lines = [];
     this.stuffers = [];
+    this.belts = [];
     this.data = newSave();
     this.stats = computeStats({});
     this.level = 1;
-    this.xrayTimer = 0; // seconds of free X-ray from a rewarded ad
-    this.xrayOn = false; // scanner toggled by the player
-    this.goldTruckPending = false;
     this.settings = {
       sens: 1,
       muted: false,
@@ -110,6 +109,7 @@ export class GameManager {
     this.shutterOpen = 0;
     this.applyQuality();
     this.particles = new Particles(this.scene);
+    this.items = new ItemManager(this);
 
     // The starter line is fixed; more lines are placed as machines.
     const ml = LAYOUT.mainLine;
@@ -161,6 +161,7 @@ export class GameManager {
   addLine(line) {
     this.lines.push(line);
     this.stuffers.push(line.stuffer);
+    this.belts.push(line.conveyor);
     line.conveyor.setWrapper(this.stats.wrap);
     this.applyCosmetics?.();
   }
@@ -168,6 +169,7 @@ export class GameManager {
   removeLine(line) {
     this.lines = this.lines.filter((l) => l !== line);
     this.stuffers = this.stuffers.filter((s) => s !== line.stuffer);
+    this.belts = this.belts.filter((b) => b !== line.conveyor);
   }
 
   get lures() {
@@ -235,10 +237,6 @@ export class GameManager {
     this.particles.burst(pos, { count: 20, color: 0xffd23f, speed: 2.5, size: 0.06, up: 2.5 });
     Audio.play('nugget');
     this.persist();
-  }
-
-  get xrayActive() {
-    return this.xrayTimer > 0 || (this.xrayOn && !!this.data.unlocks.scanner);
   }
 
   buyUpgrade(id) {
@@ -320,19 +318,14 @@ export class GameManager {
     return true;
   }
 
-  // Rewarded ads (the only ads in the game).
-  async watchAd(kind) {
+  // Rewarded ads (the only ads in the game) pay a gold nugget.
+  async watchAd() {
     const ok = await Platform.ad('rewarded');
     if (!ok) return false;
-    if (kind === 'xray') this.xrayTimer = XRAY_AD_SECONDS;
-    else if (kind === 'goldTruck') this.goldTruckPending = true;
-    else if (kind === 'cash') this.addEarnings(this.adCashReward);
+    this.addNuggets(AD_NUGGETS);
+    Audio.play('nugget');
     this.persist();
     return true;
-  }
-
-  get adCashReward() {
-    return Math.round((levelValueMult(this.level) * 25 * (6 + this.level)) / 10) * 10;
   }
 
   refreshStats() {
@@ -361,19 +354,14 @@ export class GameManager {
     this.player.carried.length = 0;
     this.player.carryAnchor.clear();
     this.clearMachines();
-    for (const l of this.lines) {
-      l.stuffer.reset();
-      l.conveyor.flush();
-    }
+    for (const l of this.lines) l.stuffer.reset();
+    this.items.clear();
     for (const tr of this.trucks) tr.dispose();
     this.trucks = [];
     this.tutorial?.stop();
     this.missions?.reset();
     this.particles.clear();
     this.ui.clearFloaters();
-    this.xrayTimer = 0;
-    this.xrayOn = false;
-    this.goldTruckPending = false;
   }
 
   // Builds the saved factory: machines, cosmetics, stats.
@@ -422,6 +410,11 @@ export class GameManager {
         decor: [...(save.cosmetics?.decor ?? [])],
       },
     };
+    // the X-ray scanner used to be a one-off unlock: it is now a placeable gate
+    if (data.unlocks.scanner) {
+      data.inventory.scanner = (data.inventory.scanner || 0) + 1;
+      delete data.unlocks.scanner;
+    }
     if (!save.version || save.version < 2) {
       // v1: the second line was an unlock, robots were an upgrade level
       data.earned = save.totals?.earned ?? data.cash;
@@ -630,7 +623,6 @@ export class GameManager {
       lures: this.lures,
       time: this.time,
       particles: this.particles,
-      xray: withPlayer && this.xrayActive,
     };
   }
 
@@ -640,25 +632,21 @@ export class GameManager {
     this.camera.lookAt(-2, 1, 2);
     this.plushies.update(dt, this.plushieCtx(false));
     this.updateLines(dt);
+    this.items.update(dt);
   }
 
   updatePlaying(dt) {
     this.tutorial.update(dt);
     this.missions.update(dt);
-    if (this.xrayTimer > 0) this.xrayTimer = Math.max(0, this.xrayTimer - dt);
-    if (this.input.xrayPressed) this.toggleXray();
 
     // Continuous deliveries: one truck at a time; the next one is scheduled once it has left.
     const busy = this.trucks.some((t) => t.state !== 'leaving' && t.state !== 'done');
     const full = this.plushies.count >= MAX_PLUSHIES;
     if (!busy && !full && (!this.tutorial.active || this.tutorial.step === 'wait')) this.nextTruck -= dt;
-    if (this.goldTruckPending && !busy) this.nextTruck = Math.min(this.nextTruck, 0);
     if (this.nextTruck <= 0 && !busy) {
       const plan = truckPlan(this.level, this.stats.supply);
-      const golden = this.goldTruckPending;
-      this.goldTruckPending = false;
-      const count = golden ? GOLD_TRUCK_COUNT : this.tutorial.active ? 4 : plan.count;
-      this.trucks.push(new Truck(this, count, (from, g) => this.unloadPlushie(from, g), { golden }));
+      const count = this.tutorial.active ? 4 : plan.count;
+      this.trucks.push(new Truck(this, count, (from) => this.unloadPlushie(from)));
       this.nextTruck = plan.interval;
     }
 
@@ -666,6 +654,7 @@ export class GameManager {
     this.plushies.update(dt, this.plushieCtx(true));
     for (const m of this.machines) m.update(dt);
     this.updateLines(dt);
+    this.items.update(dt);
     this.decor.update(dt);
     for (const tr of this.trucks) tr.update(dt);
     this.trucks = this.trucks.filter((tr) => {
@@ -681,15 +670,6 @@ export class GameManager {
       this.persist();
     }
     this.ui.updateHud();
-  }
-
-  toggleXray() {
-    if (!this.data.unlocks.scanner) {
-      this.ui.toast(this.xrayTimer > 0 ? 'xrayAdActive' : 'xrayNeedScanner');
-      return;
-    }
-    this.xrayOn = !this.xrayOn;
-    Audio.play(this.xrayOn ? 'xrayOn' : 'click');
   }
 
   // The shutter is open while a truck is pulling in or unloading.
@@ -709,10 +689,10 @@ export class GameManager {
     }
   }
 
-  unloadPlushie(from, golden) {
+  unloadPlushie(from) {
     if (this.plushies.count >= MAX_PLUSHIES) return;
     // the tutorial truck brings only teddies
-    const type = golden ? 'golden' : this.tutorial.active ? 'teddy' : pickPlushieType(this.level);
+    const type = this.tutorial.active ? 'teddy' : pickPlushieType(this.level);
     const p = this.plushies.spawn(type, this.level);
     const D = LAYOUT.door;
     const to = new THREE.Vector3(D.x + rand(-D.halfWidth + 0.8, D.halfWidth - 0.8), 0, LAYOUT.floor.maxZ - rand(2.5, 5));
