@@ -84,9 +84,9 @@ export function buildPlushie(def, shadows) {
     body.add(helmet);
   }
   if (def.splitsInto) {
-    // matryoshka seam + painted flower
-    part(G.sphere, mat(0xffd23f), [0.39, 0.03, 0.35], [0, 0.62, 0], body, false);
-    part(G.lowSphere, mat(0xffd23f), [0.07, 0.07, 0.03], [0, 0.42, 0.36], body, false);
+    // matryoshka seam + painted flower (white/pink: nothing on a plushie should look like gold)
+    part(G.sphere, mat(0xffffff), [0.39, 0.03, 0.35], [0, 0.62, 0], body, false);
+    part(G.lowSphere, mat(0xff8fa8), [0.07, 0.07, 0.03], [0, 0.42, 0.36], body, false);
   }
   if (def.ears === 'pointy') {
     // a little tail for the kitty

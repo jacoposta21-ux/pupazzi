@@ -17,11 +17,6 @@ const lerpAngle = (a, b, t) => {
 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
-// Gold nugget hidden inside some plushies: revealed when the plushie walks through an X-ray Scanner.
-const nuggetGeo = new THREE.OctahedronGeometry(0.16, 0);
-const nuggetMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true, opacity: 0.95 });
-const haloMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0, depthTest: false, transparent: true, opacity: 0.35 });
-const haloGeo = new THREE.SphereGeometry(0.32, 12, 8);
 
 let lastSqueak = 0;
 
@@ -52,17 +47,8 @@ export class Plushie {
     this.koTimer = 0;
     this.rejectCooldown = 0;
     this.lying = 0;
+    // a gold nugget may hide inside: never visible on the plushie, it ends up sealed in its can
     this.nugget = Math.random() < (this.def.nugget ?? 0);
-    if (this.nugget) {
-      this.nuggetMarker = new THREE.Group();
-      const n = new THREE.Mesh(nuggetGeo, nuggetMat);
-      const h = new THREE.Mesh(haloGeo, haloMat);
-      n.renderOrder = h.renderOrder = 999;
-      this.nuggetMarker.add(h, n);
-      this.nuggetMarker.position.y = 0.5;
-      this.nuggetMarker.visible = false;
-      this.mesh.add(this.nuggetMarker);
-    }
   }
 
   get grabbable() {
@@ -141,7 +127,6 @@ export class Plushie {
   extractNugget() {
     if (!this.nugget) return false;
     this.nugget = false;
-    this.nuggetMarker?.removeFromParent();
     return true;
   }
 
@@ -261,10 +246,6 @@ export class Plushie {
 
     this.moving = THREE.MathUtils.lerp(this.moving, speed > 0 ? 1 : 0, Math.min(1, dt * 8));
     this.animate(dt, speed);
-    if (this.def.golden && ctx.particles && Math.random() < dt * 4) {
-      _dir.set(this.pos.x + rand(-0.3, 0.3), this.pos.y + rand(0.3, 1.1), this.pos.z + rand(-0.3, 0.3));
-      ctx.particles.burst(_dir, { count: 1, color: 0xfff2a0, speed: 0.4, size: 0.04, up: 0.6, gravity: 0, life: 0.6 });
-    }
   }
 
   steer(dir, speed, dt) {
@@ -336,13 +317,6 @@ export class Plushie {
     const eyeY = this.state === 'ko' || this.state === 'dazed' ? 0.15 : 1;
     for (const e of this.eyes) e.scale.y = THREE.MathUtils.lerp(e.scale.y, 0.05 * eyeY, Math.min(1, dt * 15));
 
-    if (this.nuggetMarker) {
-      this.nuggetMarker.visible = this.revealed && this.nugget;
-      if (this.nuggetMarker.visible) {
-        this.nuggetMarker.rotation.y += dt * 3;
-        this.nuggetMarker.scale.setScalar(1 + Math.sin(this.anim * 6) * 0.15);
-      }
-    }
     this.stars.visible = this.state === 'ko' || this.state === 'dazed';
     if (this.stars.visible) {
       this.stars.rotation.y += dt * 4;

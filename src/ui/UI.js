@@ -273,7 +273,7 @@ export class UI {
     let prompt = '';
     if (B.active) prompt = B.hovered || B.hoveredTile ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
     else if (p.aimed) {
-      const gem = p.aimed.revealed && p.aimed.nugget ? ' 💎' : '';
+      const gem = p.aimed.kind === 'can' && p.aimed.revealed && p.aimed.nugget ? ' 💎' : '';
       const name = (p.aimed.kind === 'can' ? t('canName') : t('p_' + p.aimed.type)) + gem;
       prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name });
     }

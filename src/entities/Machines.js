@@ -375,8 +375,8 @@ class StufferMachine extends Machine {
 }
 
 // ---------- X-ray Scanner gate ----------
-// Stand it across a belt. Anything passing under it is scanned: plushies hiding a nugget start to glow,
-// cans hiding a nugget get a golden lid and the gate's arm lifts them off to the side cell (local +z),
+// Stand it across a belt. Cans passing under it are scanned: the ones hiding a nugget get a golden lid
+// and the gate's arm lifts them off to the side cell (local +z),
 // where another belt can take them to a Nugget Extractor. Without a belt there, they drop to the floor.
 const GATE_POST = 1.95;
 const LIFT_TIME = 0.7;
@@ -455,17 +455,6 @@ class Scanner extends Machine {
     this.curtain.material.opacity = 0.14 + Math.sin(performance.now() / 90) * 0.04 + this.flash * 0.5;
     this.curtain.material.color.setHex(this.flash > 0 ? 0xffd23f : 0x66ccff);
     const a = this.area;
-
-    // plushies: scanned anywhere under the gate
-    for (const p of game.plushies.list) {
-      if (p.scanned || p.state === 'carried' || p.state === 'gone') continue;
-      if (p.pos.x < a.minX || p.pos.x > a.maxX || p.pos.z < a.minZ || p.pos.z > a.maxZ) continue;
-      p.scanned = true;
-      if (p.nugget) {
-        p.revealed = true;
-        this.scanFlash(p.pos);
-      } else Audio.play('scan');
-    }
 
     // cans: scanned on the belt line under the gate; nugget cans are lifted aside
     for (const c of game.items.list) {
