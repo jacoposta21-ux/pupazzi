@@ -139,9 +139,13 @@ const SFX = {
     tone({ freq: 880, type: 'sine', dur: 0.1, vol: 0.08, delay: 0.1 });
   },
   turret: () => tone({ freq: 700, to: 300, type: 'square', dur: 0.06, vol: 0.035 }),
-  catapult() {
-    noise({ dur: 0.25, vol: 0.12, freq: 900, type: 'bandpass' });
-    tone({ freq: 300, to: 700, type: 'triangle', dur: 0.2, vol: 0.08 });
+  armDrop() {
+    tone({ freq: 500, to: 250, type: 'square', dur: 0.08, vol: 0.05 });
+    noise({ dur: 0.1, vol: 0.06, freq: 1500, type: 'bandpass', delay: 0.05 });
+  },
+  sort() {
+    tone({ freq: 900, to: 1400, type: 'square', dur: 0.06, vol: 0.05 });
+    tone({ freq: 1760, type: 'sine', dur: 0.15, vol: 0.08, delay: 0.25 });
   },
   nugget() {
     [1318, 1760, 2093, 2637].forEach((f, i) => tone({ freq: f, type: 'sine', dur: 0.25, vol: 0.12, delay: i * 0.07 }));

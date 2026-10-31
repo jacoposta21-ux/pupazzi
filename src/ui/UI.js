@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { t, applyI18n, lang } from '../i18n.js';
 import {
-  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS,
+  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS, BELT_PRICE,
   upgradeCost, placeableCost, levelThreshold, MAX_LEVEL,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
@@ -235,18 +235,24 @@ export class UI {
     this.show('hud-ammo', !B.active);
     if (B.active) {
       const inv = D.inventory;
-      const types = B.inventoryTypes;
       this.set(
         'build-items',
-        types.length
-          ? types.map((id, i) => {
-              const def = PLACEABLES.find((x) => x.id === id);
-              return `<div class="slot${id === B.type ? ' active' : ''}"><small>${i + 1}</small>${def.icon}<b>${inv[id]}</b></div>`;
-            }).join('')
-          : `<div class="empty">${t('buildEmpty')}</div>`,
+        B.tools
+          .map((id, i) => {
+            const icon = id === 'belt' ? '➡️' : PLACEABLES.find((x) => x.id === id).icon;
+            const count = id === 'belt' ? `${this.money(BELT_PRICE)}/m` : inv[id];
+            return `<div class="slot${id === B.type ? ' active' : ''}"><small>${i + 1}</small>${icon}<b>${count}</b></div>`;
+          })
+          .join(''),
       );
-      const name = B.type ? t('pl_' + B.type) : '';
-      this.set('build-hint', (name ? `<b>${name}</b> · ` : '') + t(g.isTouch ? 'buildHintTouch' : 'buildHint'));
+      let hint;
+      if (B.type === 'belt') {
+        const len = B.path.length;
+        hint = `<b>${t('pl_belt')}</b> · ` + (B.beltStart
+          ? t('beltHintEnd', { n: len, c: this.money(B.pathCost) }) + (B.valid ? '' : ` · <span class="bad">${t(D.cash < B.pathCost ? 'beltNoCash' : 'beltBlocked')}</span>`)
+          : t(g.isTouch ? 'beltHintStartTouch' : 'beltHintStart'));
+      } else hint = (B.type ? `<b>${t('pl_' + B.type)}</b> · ` : '') + t(g.isTouch ? 'buildHintTouch' : 'buildHint');
+      this.set('build-hint', hint);
     } else {
       const W = p.weapons;
       const cur = W.current;
@@ -265,7 +271,7 @@ export class UI {
 
     const touch = g.isTouch;
     let prompt = '';
-    if (B.active) prompt = B.hovered && !B.type ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
+    if (B.active) prompt = B.hovered || B.hoveredTile ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
     else if (p.aimed) {
       const name = p.aimed.kind === 'can' ? t('canName') : t('p_' + p.aimed.type) + (p.aimed.revealed && p.aimed.nugget ? ' 💎' : '');
       prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name });
@@ -405,6 +411,22 @@ export class UI {
     } else if (this.tab === 'machines' || this.tab === 'legendary') {
       const legendary = this.tab === 'legendary';
       note(legendary ? 'legendaryNote' : 'machinesNote');
+      if (!legendary) {
+        // belts are sold by the metre: this card jumps straight into laying a belt road
+        card({
+          disabled: false,
+          html: `
+            <div class="name">➡️ ${t('pl_belt')}</div>
+            <div class="desc">${t('pd_belt')}</div>
+            <div class="row"><span>${t('beltLaid', { n: g.beltNet.list.filter((x) => !x.fixed).length })}</span>
+            <span class="cost">${this.money(BELT_PRICE)}/m</span></div>`,
+          onClick: () => {
+            g.closeShop();
+            g.build.enter('belt');
+            return false;
+          },
+        });
+      }
       for (const def of PLACEABLES.filter((x) => !!x.legendary === legendary)) {
         const cost = placeableCost(def, D.bought[def.id] || 0);
         const have = D.inventory[def.id] || 0;

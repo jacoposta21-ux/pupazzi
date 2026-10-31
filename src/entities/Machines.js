@@ -1,7 +1,7 @@
-// Freely placeable machines: Fluffbot docks, Sparabot turrets, catapults, lures and whole production lines.
+// Freely placeable machines: Fluffbot docks, Sparabot turrets, robot arms, lures, scanners and production lines.
 // rot is a quarter-turn count (0-3); dir(rot) is the machine's facing on the XZ plane.
 import * as THREE from 'three';
-import { PLACEABLES, LAYOUT, GRAVITY } from '../data/config.js';
+import { PLACEABLES, LAYOUT } from '../data/config.js';
 import { Robot } from './Robot.js';
 import { Stuffer } from './Stuffer.js';
 import { Conveyor } from './Conveyor.js';
@@ -165,30 +165,55 @@ class Turret extends Machine {
   }
 }
 
-// ---------- Catapult: flings knocked-out plushies on its pad into the nearest Stuffer ----------
-class Catapult extends Machine {
+// ---------- Robot arm: grabs knocked-out plushies within reach and drops them into a nearby Stuffer ----------
+const ARM_REACH = 2.6; // pick-up radius around the base
+const ARM_STUFFER_RANGE = 5; // the hopper must be this close
+
+class RobotArm extends Machine {
   constructor(game, type, x, z, rot) {
     super(game, type, x, z, rot);
-    this.loaded = null;
-    this.timer = 0;
-    this.swing = 0;
+    this.state = 'idle';
+    this.t = 0;
+    this.held = null;
+    this.target = null;
+    this.yaw = 0;
+    this.reach = 0; // 0 = folded up, 1 = reaching down to the floor
     const g = this.group;
-    add(g, new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24), MAT.wood, 0, 0.04, 0);
-    add(g, new THREE.CylinderGeometry(0.75, 0.75, 0.02, 24), MAT.pink, 0, 0.09, 0);
-    for (const sz of [-0.35, 0.35]) add(g, new THREE.BoxGeometry(0.12, 0.7, 0.12), MAT.wood, -0.55, 0.4, sz);
-    this.arm = new THREE.Group();
-    this.arm.position.set(-0.55, 0.7, 0);
-    g.add(this.arm);
-    add(this.arm, new THREE.BoxGeometry(1.2, 0.08, 0.12), MAT.wood, 0.6, 0, 0);
-    add(this.arm, new THREE.CylinderGeometry(0.22, 0.16, 0.12, 14), MAT.yellow, 1.15, 0.06, 0);
+    add(g, new THREE.CylinderGeometry(0.55, 0.65, 0.3, 20), MAT.base, 0, 0.15, 0);
+    this.turret = new THREE.Group();
+    this.turret.position.y = 0.3;
+    g.add(this.turret);
+    add(this.turret, new THREE.CylinderGeometry(0.35, 0.4, 0.4, 16), MAT.yellow, 0, 0.2, 0);
+    // shoulder -> upper arm -> elbow -> forearm -> claw
+    this.shoulder = new THREE.Group();
+    this.shoulder.position.y = 0.45;
+    this.turret.add(this.shoulder);
+    add(this.shoulder, new THREE.SphereGeometry(0.2, 12, 10), MAT.dark);
+    add(this.shoulder, new THREE.BoxGeometry(0.18, 1.3, 0.18), MAT.yellow, 0, 0.65, 0);
+    this.elbow = new THREE.Group();
+    this.elbow.position.y = 1.3;
+    this.shoulder.add(this.elbow);
+    add(this.elbow, new THREE.SphereGeometry(0.16, 12, 10), MAT.dark);
+    add(this.elbow, new THREE.BoxGeometry(0.14, 1.2, 0.14), MAT.yellow, 0, 0.6, 0);
+    this.claw = new THREE.Group();
+    this.claw.position.y = 1.2;
+    this.elbow.add(this.claw);
+    add(this.claw, new THREE.CylinderGeometry(0.16, 0.12, 0.14, 12), MAT.dark);
+    for (const sx of [-1, 1]) {
+      const f = add(this.claw, new THREE.BoxGeometry(0.05, 0.25, 0.08), MAT.white, sx * 0.1, 0.15, 0);
+      f.rotation.z = sx * 0.3;
+    }
+    this.lamp = add(this.turret, new THREE.SphereGeometry(0.07, 10, 8), MAT.glow, 0, 0.45, 0.32);
+    this.collide(1.0);
   }
 
-  nearestStuffer() {
+  // Closest Stuffer within range: the one we feed.
+  get stuffer() {
     let best = null;
-    let bestD = Infinity;
+    let bestD = ARM_STUFFER_RANGE;
     for (const s of this.game.stuffers) {
-      if (!s.enabled || !s.hasRoom()) continue;
-      const d = s.center.distanceTo(this.pos);
+      if (!s.enabled) continue;
+      const d = Math.hypot(s.center.x - this.pos.x, s.center.z - this.pos.z) - 1.5;
       if (d < bestD) {
         bestD = d;
         best = s;
@@ -197,52 +222,100 @@ class Catapult extends Machine {
     return best;
   }
 
+  findPlushie() {
+    for (const p of this.game.plushies.list) {
+      if ((p.state !== 'ko' && p.state !== 'dazed') || p.claimedBy) continue;
+      if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < ARM_REACH) return p;
+    }
+    return null;
+  }
+
+  // Turn the arm (in world yaw) and set how far it reaches: 0 = up, 1 = down to the floor.
+  pose(worldYaw, reach, dt, speed = 6) {
+    const want = worldYaw - this.group.rotation.y;
+    let diff = want - this.yaw;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    this.yaw += diff * Math.min(1, dt * speed);
+    this.reach += (reach - this.reach) * Math.min(1, dt * speed);
+    this.turret.rotation.y = this.yaw;
+    this.shoulder.rotation.x = 0.2 + this.reach * 1.05;
+    this.elbow.rotation.x = 0.9 + this.reach * 0.9;
+    return Math.abs(diff) < 0.08 && Math.abs(reach - this.reach) < 0.05;
+  }
+
   update(dt) {
-    this.timer -= dt;
-    this.swing = Math.max(0, this.swing - dt * 3);
-    this.arm.rotation.z = Math.sin(this.swing * Math.PI) * 1.4;
-    if (!this.loaded) {
-      if (this.timer > 0) return;
-      for (const p of this.game.plushies.list) {
-        if ((p.state !== 'ko' && p.state !== 'dazed') || p.claimedBy) continue;
-        const dx = p.pos.x - this.pos.x, dz = p.pos.z - this.pos.z;
-        if (dx * dx + dz * dz < 1.2 * 1.2) {
-          this.loaded = p;
+    const s = this.stuffer;
+    this.lamp.material = s ? MAT.glow : MAT.pink;
+    if (!s) {
+      this.pose(this.yaw + this.group.rotation.y, 0, dt, 2);
+      return;
+    }
+    const yawTo = (p) => Math.atan2(p.x - this.pos.x, p.z - this.pos.z);
+    switch (this.state) {
+      case 'idle': {
+        this.pose(yawTo(s.center), 0, dt, 3);
+        this.t -= dt;
+        if (this.t > 0) break;
+        this.t = 0.25;
+        const p = this.findPlushie();
+        if (p) {
+          this.target = p;
           p.claimedBy = this;
-          this.timer = 0.5;
+          this.state = 'reach';
+        }
+        break;
+      }
+      case 'reach': {
+        const p = this.target;
+        if (!p || p.claimedBy !== this || (p.state !== 'ko' && p.state !== 'dazed')) {
+          this.state = 'idle';
           break;
         }
+        const d = Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z);
+        if (this.pose(yawTo(p.pos), THREE.MathUtils.clamp(d / ARM_REACH, 0.4, 1) * (p.pos.y > 0.5 ? 0.75 : 1), dt)) {
+          // grab: the plushie hangs from the claw
+          p.state = 'carried';
+          p.claimedBy = this;
+          p.mesh.removeFromParent();
+          p.mesh.position.set(0, 0.45, 0);
+          p.mesh.rotation.set(Math.PI, 0, 0);
+          p.mesh.scale.setScalar(0.7 * Math.min(1, p.def.scale));
+          p.stars.visible = false;
+          this.claw.add(p.mesh);
+          this.held = p;
+          this.state = 'swing';
+          Audio.play('grab');
+        }
+        break;
       }
-      return;
+      case 'swing': {
+        if (this.pose(yawTo(s.center), 0, dt, 4)) {
+          if (s.tryAccept(this.held, { silent: true })) {
+            this.held = null;
+            this.state = 'idle';
+            this.t = 0.3;
+            Audio.play('armDrop');
+          }
+        }
+        break;
+      }
     }
-    const p = this.loaded;
-    if (p.state === 'carried' || p.state === 'gone' || p.claimedBy !== this) {
-      this.loaded = null;
-      return;
-    }
-    p.pos.lerp(this.pos, Math.min(1, dt * 8)); // slide onto the pad
-    if (this.timer > 0) return;
-    const s = this.nearestStuffer();
-    if (!s) {
-      this.timer = 0.5;
-      return;
-    }
-    // ballistic launch into the hopper
-    const from = this.pos.clone().setY(1.2);
-    const v = new THREE.Vector3().subVectors(s.hopperCenter, from);
-    const flat = Math.hypot(v.x, v.z);
-    const T = THREE.MathUtils.clamp(flat / 9, 0.5, 1.6);
-    const vel = new THREE.Vector3(v.x / T, v.y / T + 0.5 * GRAVITY * T, v.z / T);
-    p.claimedBy = null;
-    p.throwFrom(from, vel);
-    this.loaded = null;
-    this.swing = 1;
-    this.timer = 0.6;
-    Audio.play('catapult');
   }
 
   dispose() {
-    if (this.loaded) this.loaded.claimedBy = null;
+    if (this.target?.claimedBy === this) this.target.claimedBy = null;
+    if (this.held) {
+      // put it back on the floor next to the arm
+      const p = this.held;
+      p.mesh.removeFromParent();
+      p.mesh.scale.setScalar(p.def.scale);
+      p.mesh.rotation.set(0, 0, 0);
+      p.pos.set(this.pos.x + 1, 0, this.pos.z);
+      this.game.scene.add(p.mesh);
+      p.claimedBy = null;
+      p.knockOut(3);
+    }
     super.dispose();
   }
 }
@@ -286,26 +359,6 @@ class ProductionLine extends Machine {
   dispose() {
     this.game.removeLine(this.line);
     this.stuffer.dispose();
-    this.conveyor.dispose();
-    super.dispose();
-  }
-}
-
-// ---------- Belt segment: carries anything put on it (cans, knocked-out plushies) ----------
-class BeltSegment extends Machine {
-  constructor(game, type, x, z, rot) {
-    super(game, type, x, z, rot);
-    const d = dir(rot);
-    this.conveyor = new Conveyor(game, { start: { x: x - d.x, z: z - d.z }, dir: d, length: 2, end: 'none', wrapper: false });
-    game.belts.push(this.conveyor);
-  }
-
-  update(dt) {
-    this.conveyor.update(dt, this.game.stats.beltSpeed);
-  }
-
-  dispose() {
-    this.game.belts = this.game.belts.filter((b) => b !== this.conveyor);
     this.conveyor.dispose();
     super.dispose();
   }
@@ -367,10 +420,9 @@ const CLASSES = {
   megadock: Dock,
   turret: Turret,
   starTurret: Turret,
-  catapult: Catapult,
+  arm: RobotArm,
   lure: Lure,
   line: ProductionLine,
-  belt: BeltSegment,
   scanner: Scanner,
 };
 
@@ -393,14 +445,21 @@ export function buildGhost(type) {
   };
   if (type === 'line') {
     shape(new THREE.BoxGeometry(3, LAYOUT.stuffer.h, 3), -3, LAYOUT.stuffer.h / 2, 0);
-    shape(new THREE.BoxGeometry(6, 0.2, 1.1), 1.5, LAYOUT.belt.top - 0.1, 0);
-  } else if (type === 'belt') shape(new THREE.BoxGeometry(2, 0.2, 1.1), 0, LAYOUT.belt.top - 0.1, 0);
-  else if (type === 'scanner') {
+    shape(new THREE.BoxGeometry(6, 0.2, 1), 1.5, LAYOUT.belt.top - 0.1, 0);
+  } else if (type === 'scanner') {
     shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, -1.45);
     shape(new THREE.BoxGeometry(0.4, 2.6, 0.3), 0, 1.3, 1.45);
     shape(new THREE.BoxGeometry(0.5, 0.4, 3.2), 0, 2.7, 0);
   } else if (type === 'turret' || type === 'starTurret') shape(new THREE.CylinderGeometry(0.45, 0.55, 1.2, 12), 0, 0.6, 0);
   else if (type === 'lure') shape(new THREE.CylinderGeometry(0.35, 0.35, 2, 12), 0, 1, 0);
+  else if (type === 'arm') {
+    shape(new THREE.CylinderGeometry(0.55, 0.65, 0.6, 16), 0, 0.3, 0);
+    // reach circle
+    const ring = new THREE.Mesh(new THREE.RingGeometry(ARM_REACH - 0.06, ARM_REACH, 40), mat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    g.add(ring);
+  }
   else shape(new THREE.CylinderGeometry(w * 0.45, w * 0.45, 0.4, 16), 0, 0.2, 0);
   const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.6, 3), mat);
   arrow.rotation.z = -Math.PI / 2;

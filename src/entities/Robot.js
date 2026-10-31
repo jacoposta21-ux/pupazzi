@@ -81,6 +81,8 @@ export class Robot {
     for (const p of this.game.plushies.list) {
       if (p.state !== 'ko' || p.claimedBy) continue;
       if (p.revealed && p.nugget) continue; // leave spotted nuggets for the player to grab by hand
+      // plushies already within reach of a working robot arm are the arm's job
+      if (this.game.machines.some((m) => m.type === 'arm' && Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z) < 2.6 && m.stuffer)) continue;
       const d = p.pos.distanceToSquared(this.pos);
       if (d < bestD) {
         bestD = d;
@@ -103,12 +105,14 @@ export class Robot {
         best = { kind: 'stuffer', target: s, spot };
       }
     }
+    // a robot arm next to a Stuffer: drop the plushies at its feet and let it do the rest
     for (const c of this.game.machines) {
-      if (c.type !== 'catapult') continue;
-      const d = c.pos.distanceTo(this.pos);
+      if (c.type !== 'arm' || !c.stuffer) continue;
+      const spot = c.pos.clone().add(new THREE.Vector3(1.4, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(this.pos.x - c.pos.x, this.pos.z - c.pos.z) - Math.PI / 2));
+      const d = spot.distanceTo(this.pos);
       if (d < bestD) {
         bestD = d;
-        best = { kind: 'catapult', target: c, spot: c.pos.clone() };
+        best = { kind: 'arm', target: c, spot };
       }
     }
     this.dropoff = best;
@@ -226,15 +230,15 @@ export class Robot {
           break;
         }
         const { kind, target, spot } = this.dropoff;
-        if (this.moveTo(spot, speed, dt) < (kind === 'catapult' ? 0.9 : 0.35)) {
+        if (this.moveTo(spot, speed, dt) < (kind === 'arm' ? 0.6 : 0.35)) {
           if (this.timer > 0) break;
           this.timer = 0.4;
-          if (kind === 'catapult') {
+          if (kind === 'arm') {
             if (!this.game.machines.includes(target)) {
               this.dropoff = null;
               break;
             }
-            for (const p of this.cargo) this.dropInWorld(p, target.pos, 6);
+            for (const p of this.cargo) this.dropInWorld(p, this.pos, 8);
             this.cargo = [];
           } else {
             while (this.cargo.length && target.enabled && target.tryAccept(this.cargo[this.cargo.length - 1], { silent: true })) {

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import {
-  SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, UPGRADES, QUALITY, UNLOCKS, COSMETICS, DEFAULT_EQUIP,
+  SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, UPGRADES, QUALITY, UNLOCKS, COSMETICS, DEFAULT_EQUIP, BELT_PRICE,
   PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS,
   computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned,
 } from '../data/config.js';
@@ -13,13 +13,12 @@ import { Input } from '../systems/Input.js';
 import { Colliders } from '../world/Colliders.js';
 import { buildFactory } from '../world/Factory.js';
 import { Particles } from '../fx/Particles.js';
-import { Conveyor } from '../entities/Conveyor.js';
-import { Stuffer } from '../entities/Stuffer.js';
 import { PlushieManager } from '../entities/Plushies.js';
 import { Player } from '../entities/Player.js';
 import { Truck } from '../entities/Truck.js';
 import { createMachine } from '../entities/Machines.js';
 import { ItemManager } from '../entities/Items.js';
+import { BeltNetwork } from '../entities/Belts.js';
 import { Tutorial } from '../systems/Tutorial.js';
 import { Missions } from '../systems/Missions.js';
 import { BuildMode } from '../systems/BuildMode.js';
@@ -111,16 +110,9 @@ export class GameManager {
     this.particles = new Particles(this.scene);
     this.items = new ItemManager(this);
 
-    // The starter line is fixed; more lines are placed as machines.
-    const ml = LAYOUT.mainLine;
-    const mainConveyor = new Conveyor(this, {
-      start: { x: ml.x + ml.out.x * 1.5, z: ml.z + ml.out.z * 1.5 },
-      dir: ml.out,
-      length: ml.beltLength,
-      end: 'wall',
-    });
-    this.stuffer = new Stuffer(this, ml, mainConveyor);
-    this.addLine({ stuffer: this.stuffer, conveyor: mainConveyor });
+    // Belts: player-built 1 m tiles + two fixed tiles feeding the shipping chute.
+    this.beltNet = new BeltNetwork(this);
+    for (const x of LAYOUT.shipping.tiles) this.beltNet.add(x, LAYOUT.shipping.z, 2, { fixed: true });
 
     this.decor = new Decor(this);
     this.plushies = new PlushieManager(this);
@@ -157,6 +149,11 @@ export class GameManager {
   }
 
   // ---------- Lines & machines ----------
+
+  // First production line (the tutorial points at it).
+  get stuffer() {
+    return this.stuffers[0] ?? null;
+  }
 
   addLine(line) {
     this.lines.push(line);
@@ -200,6 +197,28 @@ export class GameManager {
     this.persist();
   }
 
+  // Lays a path of belt tiles, paying BELT_PRICE per new metre. Existing tiles on the path are re-pointed for free.
+  buildBelts(cells) {
+    const fresh = cells.filter((c) => !this.beltNet.at(c.x, c.z));
+    const cost = fresh.length * BELT_PRICE;
+    if (this.data.cash < cost) return false;
+    this.data.cash -= cost;
+    for (const c of cells) this.beltNet.add(c.x, c.z, c.d, { curve: c.curve });
+    this.data.belts = this.beltNet.serialize();
+    Audio.play('place');
+    this.persist();
+    return true;
+  }
+
+  pickUpBelt(tile) {
+    if (tile.fixed) return;
+    this.beltNet.remove(tile);
+    this.data.cash += BELT_PRICE; // full refund
+    this.data.belts = this.beltNet.serialize();
+    Audio.play('grab');
+    this.persist();
+  }
+
   clearMachines() {
     for (const m of this.machines) m.dispose();
     this.machines = [];
@@ -230,10 +249,12 @@ export class GameManager {
     this.data.totals.nuggets = (this.data.totals.nuggets || 0) + n;
   }
 
-  onNuggetFound(pos) {
-    this.addNuggets(1);
+  // Visual + sound for found nuggets. `already` = the caller has added them to the total.
+  onNuggetFound(pos, already = 0) {
+    const n = already || 1;
+    if (!already) this.addNuggets(1);
     this.ui.toast('nuggetFound');
-    this.ui.floater('💎 +1', pos, 'nugget');
+    this.ui.floater(`💎 +${n}`, pos, 'nugget');
     this.particles.burst(pos, { count: 20, color: 0xffd23f, speed: 2.5, size: 0.06, up: 2.5 });
     Audio.play('nugget');
     this.persist();
@@ -356,6 +377,7 @@ export class GameManager {
     this.clearMachines();
     for (const l of this.lines) l.stuffer.reset();
     this.items.clear();
+    this.beltNet.clear();
     for (const tr of this.trucks) tr.dispose();
     this.trucks = [];
     this.tutorial?.stop();
@@ -369,6 +391,7 @@ export class GameManager {
     this.refreshStats();
     this.level = levelFromEarned(this.data.earned);
     for (const p of this.data.placed) this.placeMachine(p.type, p.x, p.z, p.rot, true);
+    for (const b of this.data.belts) this.beltNet.add(b.x, b.z, b.d, { curve: !!b.c });
     this.applyCosmetics();
   }
 
@@ -400,7 +423,8 @@ export class GameManager {
       ...save,
       levels: { ...save.levels },
       unlocks: { ...save.unlocks },
-      placed: [...(save.placed ?? [])],
+      placed: [...(save.placed ?? fresh.placed)],
+      belts: [...(save.belts ?? [])],
       inventory: { ...save.inventory },
       bought: { ...save.bought },
       totals: { ...fresh.totals, ...save.totals },
@@ -415,6 +439,23 @@ export class GameManager {
       data.inventory.scanner = (data.inventory.scanner || 0) + 1;
       delete data.unlocks.scanner;
     }
+    if (save.version === 2) {
+      // v2: the starter line was fixed (now a movable machine), belts were 2 m pieces, catapults became arms
+      data.placed.unshift({ ...LAYOUT.starterLine });
+      data.belts = [];
+      for (const p of data.placed.filter((q) => q.type === 'belt')) {
+        const d = [[1, 0], [0, 1], [-1, 0], [0, -1]][p.rot % 4];
+        for (const k of [-0.5, 0.5]) data.belts.push({ x: Math.round(p.x + d[0] * k), z: Math.round(p.z + d[1] * k), d: p.rot % 4 });
+      }
+      data.placed = data.placed.filter((q) => q.type !== 'belt');
+      for (const q of data.placed) if (q.type === 'catapult') q.type = 'arm';
+      for (const bag of [data.inventory, data.bought]) {
+        if (bag.catapult) bag.arm = (bag.arm || 0) + bag.catapult;
+        delete bag.catapult;
+        delete bag.belt;
+      }
+      data.version = 3;
+    }
     if (!save.version || save.version < 2) {
       // v1: the second line was an unlock, robots were an upgrade level
       data.earned = save.totals?.earned ?? data.cash;
@@ -424,7 +465,9 @@ export class GameManager {
       delete data.levels.robot;
       delete data.levels.overtime;
       delete data.day;
-      data.version = 2;
+      data.placed = [{ ...LAYOUT.starterLine }];
+      data.belts = [];
+      data.version = 3;
     }
     return data;
   }
@@ -632,6 +675,7 @@ export class GameManager {
     this.camera.lookAt(-2, 1, 2);
     this.plushies.update(dt, this.plushieCtx(false));
     this.updateLines(dt);
+    this.beltNet.update(dt, this.stats.beltSpeed);
     this.items.update(dt);
   }
 
@@ -654,6 +698,7 @@ export class GameManager {
     this.plushies.update(dt, this.plushieCtx(true));
     for (const m of this.machines) m.update(dt);
     this.updateLines(dt);
+    this.beltNet.update(dt, this.stats.beltSpeed);
     this.items.update(dt);
     this.decor.update(dt);
     for (const tr of this.trucks) tr.update(dt);

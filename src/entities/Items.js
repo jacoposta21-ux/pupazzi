@@ -11,6 +11,8 @@ const CAN_R = 0.2;
 const GAP = 0.5; // minimum spacing between cans riding the same belt
 const canGeo = new THREE.CylinderGeometry(CAN_R, CAN_R, CAN_H, 18);
 const lidMat = new THREE.MeshStandardMaterial({ color: 0xd9dde3, metalness: 0.8, roughness: 0.3 });
+// a can holding a gold nugget has a golden lid
+const goldLidMat = new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.8, roughness: 0.25, emissive: 0x664400, emissiveIntensity: 0.5 });
 const ribbonMat = new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5 });
 const ribbonGeo = new THREE.BoxGeometry(0.43, 0.44, 0.06);
 const bowGeo = new THREE.TorusGeometry(0.07, 0.025, 6, 12);
@@ -26,18 +28,28 @@ function canMaterial(type) {
 }
 
 export class Can {
-  constructor(value, type) {
+  constructor(value, type, nugget = false) {
     this.kind = 'can';
     this.type = type;
     this.value = value;
+    this.nugget = nugget;
     this.wrapped = false;
     this.state = 'loose';
     this.pos = new THREE.Vector3(); // bottom centre
     this.vel = new THREE.Vector3();
-    this.mesh = new THREE.Mesh(canGeo, [canMaterial(type), lidMat, lidMat]);
+    const lid = nugget ? goldLidMat : lidMat;
+    this.mesh = new THREE.Mesh(canGeo, [canMaterial(type), lid, lid]);
     this.mesh.castShadow = true;
     this.mesh.userData.item = this;
     this.def = { scale: 1, color: PLUSHIES[type].color };
+  }
+
+  // Returns true (once) if this can held a nugget; the lid goes back to plain metal.
+  takeNugget() {
+    if (!this.nugget) return false;
+    this.nugget = false;
+    this.mesh.material = [this.mesh.material[0], lidMat, lidMat];
+    return true;
   }
 
   sync() {
@@ -50,14 +62,14 @@ export class ItemManager {
     this.game = game;
     this.list = [];
     // Shipping chute: the wall opening at the end of the main line
-    const ml = LAYOUT.mainLine;
+    const sz = LAYOUT.shipping.z;
     const cx = LAYOUT.floor.minX;
-    this.chute = { minX: cx - 1, maxX: cx + 0.6, minZ: ml.z - 0.9, maxZ: ml.z + 0.9, maxY: 2.2 };
-    this.chuteCenter = new THREE.Vector3(cx + 0.2, LAYOUT.belt.top + 0.4, ml.z);
+    this.chute = { minX: cx - 1, maxX: cx + 0.6, minZ: sz - 0.9, maxZ: sz + 0.9, maxY: 2.2 };
+    this.chuteCenter = new THREE.Vector3(cx + 0.2, LAYOUT.belt.top + 0.4, sz);
   }
 
-  spawnCan(pos, value, type) {
-    const c = new Can(value, type);
+  spawnCan(pos, value, type, nugget = false) {
+    const c = new Can(value, type, nugget);
     c.pos.copy(pos);
     c.sync();
     this.game.scene.add(c.mesh);
@@ -92,6 +104,8 @@ export class ItemManager {
   }
 
   beltUnder(p) {
+    const tile = this.game.beltNet.under(p);
+    if (tile) return tile;
     for (const l of this.game.belts) if (l.carries(p)) return l;
     return null;
   }
@@ -132,12 +146,15 @@ export class ItemManager {
   }
 
   // Can `c` move `step` metres along `belt` without bumping into the can ahead?
+  // Checked in world space so it also works across tiles and around curves.
   blocked(c, belt, step) {
-    const me = belt.local(c.pos).s;
+    const d = belt.dir;
     for (const o of this.list) {
-      if (o === c || o.state !== 'loose' || !belt.carries(o.pos)) continue;
-      const s = belt.local(o.pos).s;
-      if (s > me && s - me < GAP + step) return true;
+      if (o === c || o.state !== 'loose' || Math.abs(o.pos.y - c.pos.y) > 0.3) continue;
+      const dx = o.pos.x - c.pos.x, dz = o.pos.z - c.pos.z;
+      const ahead = dx * d.x + dz * d.z;
+      const lateral = Math.abs(-dx * d.z + dz * d.x);
+      if (ahead > 0 && ahead < GAP + step && lateral < 0.35) return true;
     }
     return false;
   }

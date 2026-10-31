@@ -247,6 +247,8 @@ export class Player {
 
   grabCan(c) {
     if (this.carried.length >= this.game.stats.carry) return false;
+    // a gold-lidded can hides a nugget: picking it up by hand gets it out
+    if (c.takeNugget()) this.game.onNuggetFound(c.mesh.position.clone().setY(c.pos.y + 0.8));
     c.state = 'carried';
     c.mesh.removeFromParent();
     this.carryAnchor.add(c.mesh);

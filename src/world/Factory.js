@@ -189,5 +189,25 @@ export function buildFactory(scene, colliders, { shadows }) {
   solids.push(base, head);
   colliders.add(LAYOUT.terminal.x - 0.6, LAYOUT.terminal.x + 0.6, LAYOUT.terminal.z - 0.6, LAYOUT.terminal.z + 0.6, 2);
 
+  // Shipping chute in the west wall: the only place where cans get paid.
+  const S = LAYOUT.shipping;
+  const top = LAYOUT.belt.top;
+  const chute = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x1b1d22 }));
+  chute.position.set(F.minX + 0.1, top + 0.55, S.z);
+  scene.add(chute);
+  const flapMat = new THREE.MeshStandardMaterial({ color: 0x2c6fd1, transparent: true, opacity: 0.8 });
+  for (let i = -3; i <= 3; i++) {
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.2, 0.2), flapMat);
+    flap.position.set(F.minX + 0.3, top + 0.6, S.z + i * 0.21);
+    scene.add(flap);
+  }
+  const shipSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.2, 0.8),
+    new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
+  );
+  shipSign.position.set(F.minX + 0.01, 3.1, S.z);
+  shipSign.rotation.y = Math.PI / 2;
+  scene.add(shipSign);
+
   return { solids, sun, shutter, terminalScreen: screen };
 }

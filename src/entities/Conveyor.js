@@ -1,14 +1,14 @@
 // Conveyor belt: a moving surface. Anything loose resting on top (cans, knocked-out plushies) is carried
-// along `dir` by the ItemManager; at the end it drops off. The main line ends in the wall shipping chute.
+// along `dir` by the ItemManager; at the end it drops off (onto the next belt, or the floor).
 // Optional Gift Wrapper arch halfway along: wrapped cans are worth more.
 import * as THREE from 'three';
 import { LAYOUT } from '../data/config.js';
-import { beltTexture, hazardTexture, signTexture } from '../world/Textures.js';
+import { beltTexture, signTexture } from '../world/Textures.js';
 
-const LIP = 0.45;
+const LIP = 0.1; // tiny overlap so items hop cleanly onto the next belt
 
 export class Conveyor {
-  // cfg: { start: {x, z}, dir: {x, z} (axis-aligned unit), length, end: 'wall' | 'none', wrapper: bool }
+  // cfg: { start: {x, z}, dir: {x, z} (axis-aligned unit), length, wrapper: bool }
   constructor(game, cfg) {
     this.game = game;
     this.enabled = true;
@@ -41,30 +41,14 @@ export class Conveyor {
     this.tex.repeat.set(-len / 1.2, 1);
     const sideMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47 });
     const topMat = new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.9 });
-    this.belt = add(new THREE.BoxGeometry(len, 0.2, 1.1), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat], len / 2, top - 0.1, 0);
+    this.belt = add(new THREE.BoxGeometry(len, 0.2, 1), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat], len / 2, top - 0.1, 0);
     game.solids.push(this.belt);
 
-    const railMat = new THREE.MeshStandardMaterial({ map: hazardTexture(len) });
-    for (const sz of [-0.6, 0.6]) add(new THREE.BoxGeometry(len, 0.18, 0.1), railMat, len / 2, top + 0.05, sz);
     const legMat = new THREE.MeshStandardMaterial({ color: 0x59606b });
     for (let i = 0.6; i < len; i += 1.8) {
       for (const sz of [-0.45, 0.45]) add(new THREE.BoxGeometry(0.12, top - 0.2, 0.12), legMat, i, (top - 0.2) / 2, sz);
     }
-    this.colliders.push(this.addRect(0, len, -0.65, 0.65, top));
-
-    if (cfg.end === 'wall') {
-      // Shipping chute in the wall right after the belt end
-      add(new THREE.BoxGeometry(0.3, 1.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x1b1d22 }), len + 0.5, top + 0.55, 0);
-      const flapMat = new THREE.MeshStandardMaterial({ color: 0x2c6fd1, transparent: true, opacity: 0.8 });
-      for (let i = -3; i <= 3; i++) add(new THREE.BoxGeometry(0.04, 1.2, 0.2), flapMat, len + 0.3, top + 0.6, i * 0.21);
-      const sign = new THREE.Mesh(
-        new THREE.PlaneGeometry(3.2, 0.8),
-        new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
-      );
-      sign.position.set(len + 0.39, 3.1, 0);
-      sign.rotation.y = -Math.PI / 2;
-      this.group.add(sign);
-    }
+    this.colliders.push(this.addRect(0, len, -0.5, 0.5, top));
 
     // Gift Wrapper arch (shown when bought)
     this.wrapper = new THREE.Group();
@@ -108,7 +92,7 @@ export class Conveyor {
   carries(p, margin = 0.05) {
     if (!this.enabled || Math.abs(p.y - this.top) > 0.2) return false;
     const { s, side } = this.local(p);
-    return s >= -margin && s <= this.length + LIP && Math.abs(side) <= 0.66;
+    return s >= -margin && s <= this.length + LIP && Math.abs(side) <= 0.52;
   }
 
   // Adds a collider for a rectangle given in belt-local coordinates (x along the belt).

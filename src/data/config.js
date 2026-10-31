@@ -21,7 +21,10 @@ export const LAYOUT = {
   stuffer: { x: -8, z: -6, w: 3, d: 3, h: 2.2 },
   belt: { startX: -9.5, endX: -17.6, z: -6, top: 0.9 },
   // The starter production line: Stuffer + belt running west to a shipping chute in the wall.
-  mainLine: { x: -8, z: -6, out: { x: -1, z: 0 }, beltLength: 8.1 },
+  // Shipping: the only exit for cans, a chute in the west wall fed by two fixed belt tiles.
+  shipping: { z: -6, tiles: [-16, -17] },
+  // The starter production line (a normal, movable 'line' machine) feeding the shipping belt.
+  starterLine: { type: 'line', x: -11, z: -6, rot: 2 },
   terminal: { x: 5, z: 13 },
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
@@ -132,6 +135,7 @@ export const UPGRADES = [
 export const UNLOCKS = [
   { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
   { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
+  { id: 'sorter', cat: 'expansion', icon: '🦾', cost: 3000 },
   { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
   { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
   { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
@@ -142,15 +146,17 @@ export const UNLOCKS = [
 export const PLACEABLES = [
   { id: 'dock', icon: '🤖', cost: 250, growth: 1.9, size: [1.6, 1.6] },
   { id: 'turret', icon: '🔫', cost: 600, growth: 1.8, size: [1.2, 1.2] },
-  { id: 'catapult', icon: '🪃', cost: 450, growth: 1.7, size: [1.8, 1.8] },
+  { id: 'arm', icon: '🦿', cost: 450, growth: 1.7, size: [1.4, 1.4] },
   { id: 'lure', icon: '🍭', cost: 300, growth: 1.6, size: [1.0, 1.0] },
-  { id: 'belt', icon: '➡️', cost: 60, growth: 1.06, size: [2, 1.4] },
   { id: 'scanner', icon: '🩻', cost: 1200, growth: 1.8, size: [1.2, 3.2] },
   { id: 'line', icon: '🏭', cost: 1500, growth: 2.4, size: [9, 3.2] },
   // legendary: paid with gold nuggets (10+ each)
   { id: 'megadock', icon: '🦾', nuggets: 10, size: [1.8, 1.8], legendary: true },
   { id: 'starTurret', icon: '🌟', nuggets: 12, size: [1.4, 1.4], legendary: true },
 ];
+
+// Belts are bought by the metre and laid as a path of 1 m tiles.
+export const BELT_PRICE = 25;
 
 export function placeableCost(def, bought) {
   return def.nuggets ? def.nuggets : Math.round(def.cost * Math.pow(def.growth, bought));
@@ -213,6 +219,7 @@ export function computeStats(levels, unlocks = {}) {
     slots: 1 + L('slots'),
     queueSize: unlocks.silo ? 6 : 3,
     wrap: !!unlocks.wrapper,
+    sorter: !!unlocks.sorter,
     processTime: 2.6 * Math.pow(0.86, L('process')),
     beltSpeed: 1.3 * (1 + 0.2 * L('belt')),
     valueMult: 1 + 0.15 * L('value'),
@@ -225,14 +232,15 @@ export function computeStats(levels, unlocks = {}) {
 
 export function newSave() {
   return {
-    version: 2,
+    version: 3,
     cash: 0,
     earned: 0, // lifetime earnings: drives the factory level and the $1M goal
     nuggets: 0,
     won: false,
     levels: {},
     unlocks: {},
-    placed: [], // [{ type, x, z, rot }]
+    placed: [{ ...LAYOUT.starterLine }], // [{ type, x, z, rot }]
+    belts: [], // [{ x, z, d }] 1 m belt tiles, d = quarter-turn direction
     inventory: {}, // bought but not placed: { type: count }
     bought: {}, // how many of each placeable were bought (price scaling)
     cosmetics: { owned: [], equipped: { ...DEFAULT_EQUIP }, decor: [] },

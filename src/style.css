@@ -311,3 +311,5 @@ body.touch #weapon-bar .slot { width: 40px; height: 40px; font-size: 18px; }
 .victory-emoji { font-size: 72px; animation: pulse 0.8s infinite alternate; }
 body.touch .level-box { width: 170px; }
 body.touch #mission { width: 190px; }
+
+#build-hint .bad { color: #ff9a9a; }

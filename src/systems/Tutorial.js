@@ -5,7 +5,7 @@ import { LAYOUT } from '../data/config.js';
 import { Audio } from './Audio.js';
 
 const DOOR = new THREE.Vector3(LAYOUT.door.x, 0, LAYOUT.floor.maxZ - 3);
-const CHUTE = new THREE.Vector3(LAYOUT.belt.endX + 1, LAYOUT.belt.top, LAYOUT.belt.z);
+const CHUTE = new THREE.Vector3(LAYOUT.floor.minX + 1, LAYOUT.belt.top, LAYOUT.shipping.z);
 
 export class Tutorial {
   constructor(game) {
@@ -68,7 +68,7 @@ export class Tutorial {
         next: 'throw',
       },
       throw: {
-        target: () => g.stuffer.hopperCenter,
+        target: () => g.stuffer?.hopperCenter ?? null,
         done: () => this.stuffed > 0,
         back: () => P.carried.length === 0 && !list.some((p) => p.state === 'thrown') && 'shoot',
         next: 'ship',
