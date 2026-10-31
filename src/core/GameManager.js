@@ -25,6 +25,8 @@ import { Missions } from '../systems/Missions.js';
 import { BuildMode } from '../systems/BuildMode.js';
 import { UI } from '../ui/UI.js';
 import { Decor } from '../world/Decor.js';
+import { Arena } from '../systems/Arena.js';
+import { ARENA_SHOP_POS, ARENA_KEEP_CLEAR } from '../world/ArenaWorld.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 // Test builds only (npm run build:cheats): bottomless cash and nuggets to try everything quickly.
@@ -41,6 +43,8 @@ export class GameManager {
     // Meshes are always built shadow-ready; the quality preset decides if shadows render.
     this.shadows = true;
     this.state = 'loading';
+    this.mode = 'factory'; // 'factory' | 'arena'
+    this.career = null; // the factory save while the arena run uses this.data
     this.paused = false;
     this.shopOpen = false;
     this.time = 0;
@@ -80,6 +84,7 @@ export class GameManager {
     this.scene.add(this.camera);
     this.clock = new THREE.Clock();
     this.terminalPos = new THREE.Vector3(LAYOUT.terminal.x, 0, LAYOUT.terminal.z);
+    this.consolePos = new THREE.Vector3(LAYOUT.console.x, 0, LAYOUT.console.z);
 
     addEventListener('resize', () => this.onResize());
     document.addEventListener('visibilitychange', () => {
@@ -103,6 +108,7 @@ export class GameManager {
     this.nav = new Nav(this);
     const factory = buildFactory(this.scene, this.colliders, { shadows: this.shadows });
     this.solids.push(...factory.solids);
+    this.factoryRoot = factory.root;
     this.sun = factory.sun;
     this.shutter = factory.shutter;
     this.shutterOpen = 0;
@@ -121,6 +127,7 @@ export class GameManager {
     this.tutorial = new Tutorial(this);
     this.missions = new Missions(this);
     this.build = new BuildMode(this);
+    this.arena = new Arena(this);
 
     this.bus.on('canSold', ({ value, pos }) => {
       if (this.state !== 'playing') return;
@@ -131,6 +138,7 @@ export class GameManager {
     });
     this.bus.on('plushieStuffed', () => this.data.totals.stuffed++);
     this.bus.on('plushieKO', (p) => {
+      if (this.mode === 'arena') return this.arena.onKO(p);
       this.data.totals.knockouts++;
       this.ui.floater('KO!', p.pos.clone().setY(1.4 * p.def.scale), 'ko');
       if (p.def.splitsInto) {
@@ -219,6 +227,7 @@ export class GameManager {
 
   // What selling one of `type` gives back: { cash } or { nuggets }.
   resaleValue(type) {
+    if (this.mode === 'arena') return { cash: this.arena.resale(type) };
     if (type === 'belt') return { cash: Math.round(BELT_PRICE * SELL_RATIO) };
     const def = PLACEABLES.find((x) => x.id === type);
     if (def.nuggets) return { nuggets: Math.floor(def.nuggets * SELL_RATIO) };
@@ -259,6 +268,26 @@ export class GameManager {
     inv[type]--;
     this.refund(type);
     this.persist();
+  }
+
+  // Single-use machines (arena mines) remove themselves once triggered.
+  consumeMachine(m) {
+    m.dispose();
+    this.machines = this.machines.filter((x) => x !== m);
+    const i = this.data.placed.findIndex((p) => p.type === m.type && p.x === m.pos.x && p.z === m.pos.z && p.rot === m.rot);
+    if (i >= 0) this.data.placed.splice(i, 1);
+    if (this.data.bought[m.type] > 0) this.data.bought[m.type]--;
+  }
+
+  // Areas where nothing can be built (unloading bay, terminal, console / arena gates, Stuffer, shop).
+  get keepClear() {
+    if (this.mode === 'arena') return ARENA_KEEP_CLEAR;
+    const T = LAYOUT.terminal, C = LAYOUT.console, D = LAYOUT.door, F = LAYOUT.floor;
+    return [
+      { minX: D.x - 5, maxX: D.x + 5, minZ: F.maxZ - 5, maxZ: F.maxZ },
+      { minX: T.x - 1.5, maxX: T.x + 1.5, minZ: T.z - 1.5, maxZ: T.z + 1.5 },
+      { minX: C.x - 1.5, maxX: C.x + 1.5, minZ: C.z - 1.5, maxZ: C.z + 1.5 },
+    ];
   }
 
   clearMachines() {
@@ -424,7 +453,7 @@ export class GameManager {
 
   applyCosmetics() {
     if (!this.player) return;
-    const cos = this.data.cosmetics ?? newSave().cosmetics;
+    const cos = (this.career ?? this.data).cosmetics ?? newSave().cosmetics;
     const find = (id) => COSMETICS.find((c) => c.id === id);
     const gloves = find(cos.equipped.gloves) ?? find(DEFAULT_EQUIP.gloves);
     const skin = find(cos.equipped.blaster) ?? find(DEFAULT_EQUIP.blaster);
@@ -432,7 +461,7 @@ export class GameManager {
     this.player.vm.applyGloves(gloves.color, gloves.metal);
     this.player.vm.applySkin(skin.colors, skin.metal);
     for (const s of this.stuffers) s.bodyMat.color.setHex(paint.color);
-    this.decor.apply(cos.decor);
+    this.decor.apply(this.mode === 'arena' ? [] : cos.decor);
     this.colliders.version++; // decorations toggle colliders on/off
   }
 
@@ -469,6 +498,8 @@ export class GameManager {
       Platform.gameplayStop();
       this.persist();
     }
+    if (this.mode === 'arena') this.closeArenaWorld();
+    this.ui.hideArenaOver();
     this.state = 'menu';
     this.paused = false;
     this.shopOpen = false;
@@ -614,6 +645,11 @@ export class GameManager {
 
   openShop() {
     if (this.shopOpen) return;
+    if (this.mode === 'arena' && !this.arena.shopAvailable) {
+      this.ui.toast('arenaShopClosed');
+      Audio.play('reject');
+      return;
+    }
     if (CHEATS) this.topUpCheats();
     this.shopOpen = true;
     this.paused = true;
@@ -699,7 +735,89 @@ export class GameManager {
 
   persist() {
     if (this.state === 'menu' && !this.save) return; // nothing to save before the first game
-    Platform.save(SAVE_KEY, this.data);
+    // in the arena, this.data is the run: the factory save is kept aside
+    Platform.save(SAVE_KEY, this.mode === 'arena' ? this.career : this.data);
+  }
+
+  // ---------- Arena mini-game ----------
+
+  // From the arcade console: put the factory away and start an arena run.
+  enterArena() {
+    if (this.mode === 'arena' || this.state !== 'playing') return;
+    this.persist();
+    this.build.exit();
+    this.career = this.data;
+    this.resetWorld();
+    this.mode = 'arena';
+    this.factoryRoot.visible = false;
+    for (const t of this.beltNet.list) t.group.visible = false;
+    this.decor.apply([]);
+    this.factoryColliders = this.colliders;
+    this.factorySolids = this.solids;
+    this.colliders = new Colliders();
+    this.solids = [];
+    this.nav.version = -1;
+    this.terminalPos = new THREE.Vector3(ARENA_SHOP_POS.x, 0, ARENA_SHOP_POS.z);
+    this.consolePos = null;
+    this.scene.fog.near = 60;
+    document.body.classList.add('arena');
+    this.arena.open();
+    this.ui.showGameplay();
+    Audio.play('fanfare');
+  }
+
+  // Tear the arena down and bring the factory back (without reloading it).
+  closeArenaWorld() {
+    this.arena.close();
+    this.resetWorld();
+    this.colliders = this.factoryColliders;
+    this.solids = this.factorySolids;
+    this.nav.version = -1;
+    this.factoryRoot.visible = true;
+    for (const t of this.beltNet.list) t.group.visible = true;
+    this.mode = 'factory';
+    this.data = this.career;
+    this.career = null;
+    this.terminalPos = new THREE.Vector3(LAYOUT.terminal.x, 0, LAYOUT.terminal.z);
+    this.consolePos = new THREE.Vector3(LAYOUT.console.x, 0, LAYOUT.console.z);
+    this.scene.fog.near = 45;
+    document.body.classList.remove('arena');
+  }
+
+  // Back to the factory, standing in front of the console.
+  exitArena() {
+    if (this.mode !== 'arena') return;
+    this.ui.hideArenaOver();
+    this.closeArenaWorld();
+    this.loadWorld();
+    this.player.respawn({ x: LAYOUT.console.x + 1, z: LAYOUT.console.z - 2.5 }, Math.PI * 0.15);
+    this.player.refill();
+    this.persist();
+    if (!this.settings.tutorialSeen) this.tutorial.start();
+    this.ui.shownCash = this.data.cash;
+    this.ui.showGameplay();
+    this.resume();
+  }
+
+  showArenaOver(info) {
+    if (this.mode !== 'arena') return;
+    this.paused = true;
+    this.input.exitLock();
+    Audio.setMusicMood({ duck: 0.4 });
+    this.ui.showArenaOver(info);
+  }
+
+  async arenaRetry() {
+    if (await this.arena.retryRound()) {
+      this.ui.hideArenaOver();
+      this.resume();
+    }
+  }
+
+  arenaRestart() {
+    this.ui.hideArenaOver();
+    this.arena.restartRun();
+    this.resume();
   }
 
   saveSettings() {
@@ -728,7 +846,7 @@ export class GameManager {
   }
 
   onLockChange(locked) {
-    if (this.state !== 'playing' || this.shopOpen || this.ui.victoryOpen) return;
+    if (this.state !== 'playing' || this.shopOpen || this.ui.victoryOpen || this.ui.arenaOverOpen) return;
     this.paused = !locked;
     this.ui.showPause(!locked);
     Audio.setMusicMood({ duck: locked ? 1 : 0.4 });
@@ -748,7 +866,11 @@ export class GameManager {
     this.time += dt;
     if (this.state === 'playing' && !this.paused) this.checkPerformance(raw);
     if (this.state === 'menu') this.updateMenu(dt);
-    else if (this.state === 'playing' && !this.paused) this.updatePlaying(dt);
+    else if (this.state === 'playing' && !this.paused) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
+    else if (this.state === 'playing' && this.mode === 'arena' && this.shopOpen) {
+      this.arena.tickShop(dt);
+      this.ui.updateShopTimer();
+    }
     this.particles.update(dt);
     this.ui.updateFloaters(dt);
     this.renderer.render(this.scene, this.camera);
@@ -761,6 +883,7 @@ export class GameManager {
       colliders: this.colliders,
       stuffers: this.stuffers,
       lures: this.lures,
+      arena: this.mode === 'arena' ? this.arena : null,
       time: this.time,
       particles: this.particles,
     };
@@ -793,7 +916,7 @@ export class GameManager {
 
     this.player.update(dt, this.input);
     this.plushies.update(dt, this.plushieCtx(true));
-    for (const m of this.machines) m.update(dt);
+    for (const m of [...this.machines]) m.update(dt);
     for (const st of this.stuffers) st.update(dt);
     this.beltNet.update(dt, this.stats.beltSpeed);
     this.items.update(dt);
@@ -811,6 +934,16 @@ export class GameManager {
       this.autosave = AUTOSAVE_EVERY;
       this.persist();
     }
+    this.ui.updateHud();
+  }
+
+  updateArena(dt) {
+    if (this.arena.adPlaying) return; // frozen during the ad break
+    this.player.update(dt, this.input);
+    this.plushies.update(dt, this.plushieCtx(true));
+    for (const m of [...this.machines]) m.update(dt);
+    this.arena.update(dt, this.input);
+    if (CHEATS) this.topUpCheats();
     this.ui.updateHud();
   }
 

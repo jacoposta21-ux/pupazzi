@@ -162,6 +162,35 @@ const SFX = {
   rainbow() {
     tone({ freq: 1200 + Math.random() * 600, to: 2400, type: 'sine', dur: 0.08, vol: 0.06 });
   },
+  // ---- Arena ----
+  poof() {
+    noise({ dur: 0.22, vol: 0.22, freq: 900, type: 'bandpass' });
+    tone({ freq: 300, to: 900, type: 'sine', dur: 0.12, vol: 0.12 });
+  },
+  boom() {
+    noise({ dur: 0.6, vol: 0.4, freq: 500 });
+    tone({ freq: 120, to: 40, type: 'sine', dur: 0.5, vol: 0.4 });
+  },
+  coreHit() {
+    tone({ freq: 140, to: 90, type: 'square', dur: 0.12, vol: 0.09 });
+    noise({ dur: 0.1, vol: 0.1, freq: 600 });
+  },
+  bonk: () => tone({ freq: 520, to: 260, type: 'triangle', dur: 0.1, vol: 0.14 }),
+  boing: () => tone({ freq: 180, to: 720, type: 'sine', dur: 0.3, vol: 0.18 }),
+  splash() {
+    noise({ dur: 0.35, vol: 0.28, freq: 1800, type: 'bandpass' });
+    tone({ freq: 500, to: 150, type: 'sine', dur: 0.2, vol: 0.12 });
+  },
+  feather() {
+    noise({ dur: 0.18, vol: 0.28, freq: 1400, type: 'bandpass' });
+    tone({ freq: 220, to: 90, type: 'square', dur: 0.12, vol: 0.12 });
+  },
+  roundStart() {
+    [392, 523, 659].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.18, vol: 0.08, delay: i * 0.12 }));
+  },
+  boss() {
+    [196, 185, 175, 165].forEach((f, i) => tone({ freq: f, type: 'sawtooth', dur: 0.3, vol: 0.1, delay: i * 0.22 }));
+  },
   wrap() {
     noise({ dur: 0.12, vol: 0.08, freq: 3000, type: 'highpass' });
     tone({ freq: 1568, type: 'sine', dur: 0.12, vol: 0.06, delay: 0.05 });

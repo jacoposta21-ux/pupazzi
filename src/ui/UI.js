@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { t, applyI18n, lang } from '../i18n.js';
 import {
   UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS, BELT_PRICE, BELT_PACK, adCashReward,
-  upgradeCost, placeableCost, levelThreshold, MAX_LEVEL,
+  upgradeCost, placeableCost, levelThreshold, MAX_LEVEL, ARENA_SHOP, PLUSHIES,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
@@ -39,6 +39,10 @@ export class UI {
     click('btn-close-shop', () => game.closeShop());
     click('btn-victory', () => game.closeVictory());
     click('btn-touch-pause', () => game.pause());
+    click('btn-leave-arena', () => game.exitArena());
+    click('btn-arena-retry', () => game.arenaRetry());
+    click('btn-arena-restart', () => game.arenaRestart());
+    click('btn-arena-leave', () => game.exitArena());
     document.querySelectorAll('.tab').forEach((el) =>
       el.addEventListener('click', () => {
         Audio.play('click');
@@ -87,6 +91,8 @@ export class UI {
   }
 
   money(v) {
+    // arena coins in the arena, dollars in the factory
+    if (this.game.mode === 'arena') return '🪙' + full.format(Math.round(v));
     return '$' + (v >= 100000 ? compact.format(v) : full.format(Math.round(v)));
   }
 
@@ -153,6 +159,42 @@ export class UI {
     if (v) this.renderShop();
   }
 
+  // Big centred title for round starts, bosses, round cleared...
+  arenaBanner(titleKey, subKey = null, vars = {}) {
+    $('banner-title').textContent = t(titleKey, vars);
+    $('banner-sub').textContent = subKey ? t(subKey, vars) : '';
+    const el = $('banner');
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+
+  showArenaOver({ round, kills, coins, best, record }) {
+    this.arenaOverOpen = true;
+    $('arena-over-text').textContent = t('arenaOverText', { r: round, k: full.format(kills), c: full.format(coins) });
+    $('arena-over-record').textContent = record ? t('arenaNewRecord', { r: best }) : t('arenaBest', { r: best });
+    const retry = $('btn-arena-retry');
+    const can = Platform.canRewarded || import.meta.env.VITE_CHEATS === '1';
+    retry.textContent = can ? t('arenaRetry', { r: round }) : t('arenaRetryNoAd');
+    retry.disabled = !can;
+    this.show('touch-ui', false);
+    this.show('arena-over');
+  }
+
+  hideArenaOver() {
+    if (!this.arenaOverOpen) return;
+    this.arenaOverOpen = false;
+    this.show('arena-over', false);
+    this.show('touch-ui', this.game.isTouch);
+  }
+
+  updateShopTimer() {
+    const A = this.game.arena;
+    this.set('shop-timer', t(A.phase === 'intro' ? 'shopTimerFirst' : 'shopTimer', { s: Math.max(0, Math.ceil(A.timer)) }));
+  }
+
   showVictory() {
     this.victoryOpen = true;
     const T = this.game.data.totals;
@@ -187,7 +229,10 @@ export class UI {
         setTimeout(() => pill.classList.remove('bump'), 250);
       }
     } else this.shownCash = D.cash;
+    const arena = g.mode === 'arena';
+    this.set('hud-cash-icon', arena ? '' : '💰');
     this.set('hud-cash', this.money(this.shownCash));
+    if (arena) this.updateArenaHud();
     this.set('hud-nuggets', `💎 ${D.nuggets}`);
 
     // factory level + $1M goal
@@ -288,10 +333,41 @@ export class UI {
       const name = (p.aimed.kind === 'can' ? t('canName') : t('p_' + p.aimed.type)) + gem;
       prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name });
     }
+    else if (p.atTerminal && arena) prompt = t(g.arena.shopAvailable ? 'arenaShopHint' : 'arenaShopClosed', { key: touch ? '✋ ' : '[E] ' });
     else if (p.atTerminal) prompt = t('terminalHint', { key: touch ? '✋ ' : '[E] ' });
+    else if (p.atConsole) prompt = t('consoleHint', { key: touch ? '✋ ' : '[E] ', r: D.arena?.best || 0 });
     else if (p.aimingAtStuffer) prompt = t('throwHint', { key: touch ? '🎯 ' : '[F] ' });
     this.set('prompt', prompt);
-    $('crosshair').classList.toggle('target', !!p.aimed || p.aimingAtStuffer || p.atTerminal);
+    $('crosshair').classList.toggle('target', !!p.aimed || p.aimingAtStuffer || p.atTerminal || p.atConsole);
+  }
+
+  updateArenaHud() {
+    const A = this.game.arena;
+    const touch = this.game.isTouch;
+    this.set('arena-round', A.round > 0 ? t('roundN', { n: A.round }) : t('arenaTitle'));
+    const k = Math.max(0, A.coreHp / A.coreMax);
+    const fill = $('arena-core-fill');
+    fill.style.width = `${k * 100}%`;
+    fill.classList.toggle('mid', k <= 0.5 && k > 0.25);
+    fill.classList.toggle('low', k <= 0.25);
+    this.set('arena-core-text', `🏭 ${Math.ceil(A.coreHp)} / ${A.coreMax}`);
+    let status = '';
+    const key = touch ? '▶️' : '[G]';
+    if (A.phase === 'intro' || A.phase === 'break') status = t(A.phase === 'intro' ? 'arenaStartsIn' : 'breakIn', { s: Math.ceil(A.timer), key: `<span class="key">${key}</span>` });
+    else if (A.phase === 'retry') status = t('retryIn', { s: Math.ceil(A.timer) });
+    else if (A.phase === 'round') {
+      const left = A.toSpawn + this.game.plushies.list.filter((x) => x.arena).length + (A.bossPending ? 1 : 0);
+      status = t('enemiesLeft', { n: left });
+    }
+    this.set('arena-status', status);
+    document.querySelector('[data-btn="ready"]')?.classList.toggle('hidden', !(A.phase === 'intro' || A.phase === 'break'));
+    const b = A.boss;
+    this.show('boss-bar', !!b && b.state !== 'gone');
+    if (b && b.state !== 'gone') {
+      this.set('boss-name', `👑 ${t('p_' + b.type)}`);
+      const max = b.maxHp + (b.maxArmor || 0);
+      $('boss-fill').style.width = `${Math.max(0, ((b.hp + (b.armor || 0)) / max) * 100)}%`;
+    }
   }
 
   missionGoal(m) {
@@ -365,8 +441,11 @@ export class UI {
   // ---------- Shop terminal ----------
 
   renderShop() {
+    if (this.game.mode === 'arena') return this.renderArenaShop();
     const g = this.game;
     const D = g.data;
+    document.querySelector('#shop-screen h2').textContent = t('terminalTitle');
+    $('btn-close-shop').textContent = t('closeShop');
     $('shop-cash').textContent = this.money(D.cash);
     $('shop-nuggets').textContent = D.nuggets;
     document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === this.tab));
@@ -435,7 +514,7 @@ export class UI {
           onClick: () => g.buyBelts(),
         });
       }
-      for (const def of PLACEABLES.filter((x) => !!x.legendary === legendary)) {
+      for (const def of PLACEABLES.filter((x) => !!x.legendary === legendary && !x.arena)) {
         const cost = placeableCost(def, D.bought[def.id] || 0);
         const have = D.inventory[def.id] || 0;
         const placed = D.placed.filter((x) => x.type === def.id).length;
@@ -524,6 +603,52 @@ export class UI {
           },
         });
       }
+    }
+  }
+
+  // ---------- Arena shop stall ----------
+
+  renderArenaShop() {
+    const g = this.game;
+    const A = g.arena;
+    const D = g.data;
+    $('shop-cash').textContent = this.money(D.cash);
+    $('shop-nuggets').textContent = g.career?.nuggets ?? 0;
+    document.querySelector('#shop-screen h2').textContent = t('arenaShopTitle');
+    $('btn-close-shop').textContent = t('closeArenaShop');
+    this.updateShopTimer();
+    const shop = $('shop');
+    shop.innerHTML = '';
+    let cat = null;
+    for (const item of ARENA_SHOP) {
+      if (item.cat !== cat) {
+        cat = item.cat;
+        const h = document.createElement('div');
+        h.className = 'shop-cat';
+        h.textContent = t('acat_' + cat);
+        shop.appendChild(h);
+      }
+      const cost = A.priceOf(item);
+      const avail = A.available(item);
+      const owned = item.kind === 'weapon' && D.unlocks[item.id];
+      let info = '';
+      if (item.kind === 'upgrade') info = t('lvl', { l: D.levels[item.id] || 0, m: item.max });
+      else if (item.kind === 'placeable') info = t('ownedCount', { p: D.placed.filter((x) => x.type === item.id).length, i: D.inventory[item.id] || 0 });
+      else if (item.kind === 'repair') info = `🏭 ${Math.ceil(A.coreHp)} / ${A.coreMax}`;
+      const btn = document.createElement('button');
+      btn.className = 'upg' + (owned ? ' owned' : '');
+      btn.disabled = !avail || D.cash < cost;
+      if (!btn.disabled) btn.classList.add('affordable');
+      const right = owned ? `<span class="state">${t('ownedTag')}</span>` : !avail ? `<span class="state">${t('max')}</span>` : `<span class="cost">${this.money(cost)}</span>`;
+      btn.innerHTML = `
+        <div class="name">${item.icon} ${t('a_' + item.id)}</div>
+        <div class="desc">${t('ard_' + item.id)}</div>
+        <div class="row"><span>${info}</span>${right}</div>`;
+      btn.addEventListener('click', () => {
+        if (A.buy(item.id)) this.renderArenaShop();
+        else Audio.play('reject');
+      });
+      shop.appendChild(btn);
     }
   }
 }

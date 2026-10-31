@@ -3,8 +3,8 @@ import * as THREE from 'three';
 import { WEAPONS, GRAVITY } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 
-export const WEAPON_ORDER = ['blaster', 'minigun', 'net', 'confetti', 'vacuum', 'rainbow'];
-const MAGAZINE_WEAPONS = ['blaster', 'minigun', 'net', 'confetti'];
+export const WEAPON_ORDER = ['blaster', 'minigun', 'net', 'confetti', 'vacuum', 'rainbow', 'feather', 'balloon'];
+const MAGAZINE_WEAPONS = ['blaster', 'minigun', 'net', 'confetti', 'feather', 'balloon'];
 const RAINBOW = [0xff4d6d, 0xff9f1c, 0xffd23f, 0x5fe0b7, 0x3f8efc, 0x9b5de5];
 const CENTER = new THREE.Vector2(0, 0);
 const KO_COLORS = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0xffffff];
@@ -16,6 +16,8 @@ const _dir = new THREE.Vector3();
 
 const netGeo = new THREE.IcosahedronGeometry(0.22, 1);
 const netMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
+const balloonGeo = new THREE.SphereGeometry(0.16, 14, 10);
+const balloonMats = [0x3f8efc, 0xff6b8b, 0x5fe0b7, 0xffd23f].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.25 }));
 
 export class WeaponSystem {
   constructor(player) {
@@ -26,6 +28,7 @@ export class WeaponSystem {
     this.reload = Object.fromEntries(MAGAZINE_WEAPONS.map((id) => [id, 0]));
     this.cooldown = 0;
     this.nets = [];
+    this.balloons = [];
     this.vacuumOn = false;
     this.vacuumSound = 0;
     this.raycaster = new THREE.Raycaster();
@@ -61,8 +64,9 @@ export class WeaponSystem {
       this.ammo[id] = this.mag(id);
       this.reload[id] = 0;
     }
-    for (const n of this.nets) n.mesh.removeFromParent();
+    for (const n of [...this.nets, ...this.balloons]) n.mesh.removeFromParent();
     this.nets.length = 0;
+    this.balloons.length = 0;
     if (!this.owned(this.current)) this.select('blaster', true);
   }
 
@@ -113,6 +117,7 @@ export class WeaponSystem {
       }
     }
     this.updateNets(dt);
+    this.updateBalloons(dt);
   }
 
   aimRay() {
@@ -129,7 +134,7 @@ export class WeaponSystem {
     if (finite) this.ammo[id]--;
     const cfg = WEAPONS[id];
     this.cooldown = id === 'blaster' ? this.game.stats.fireCooldown : cfg.cooldown;
-    const kick = { confetti: [2, 0.05], minigun: [0.35, 0.004] }[id] ?? [1, 0.012];
+    const kick = { confetti: [2, 0.05], minigun: [0.35, 0.004], feather: [1.8, 0.04] }[id] ?? [1, 0.012];
     this.player.vm.kickRecoil(kick[0]);
     this.player.kick = Math.min(0.08, this.player.kick + kick[1]);
     if (id === 'blaster') this.fireBlaster();
@@ -137,6 +142,8 @@ export class WeaponSystem {
     else if (id === 'net') this.fireNet();
     else if (id === 'confetti') this.fireConfetti();
     else if (id === 'rainbow') this.fireRainbow();
+    else if (id === 'feather') this.fireFeather();
+    else if (id === 'balloon') this.fireBalloon();
     if (finite && this.ammo[id] === 0) this.startReload(id);
   }
 
@@ -215,6 +222,8 @@ export class WeaponSystem {
     if (!hit) return;
     const p = P.plushieFromObject(hit.object);
     if (!p) return;
+    // bosses can't be one-shot: the ray just hits hard
+    if (p.def.boss) return this.applyHit(p, p.takeHit(4, P.pos), hit.point);
     p.armor = 0;
     if (p.helmet) p.helmet.visible = false;
     p.hp = 0;
@@ -249,7 +258,7 @@ export class WeaponSystem {
       let impact = n.life <= 0 || pos.y <= 0.15 || game.colliders.pointInside(pos.x, pos.z, pos.y);
       if (!impact) {
         for (const p of game.plushies.list) {
-          if (!p.grabbable) continue;
+          if (!p.targetable) continue;
           _v.copy(p.pos).setY(p.pos.y + 0.5 * p.def.scale);
           if (_v.distanceTo(pos) < 0.7 * p.def.scale + 0.2) {
             impact = true;
@@ -261,13 +270,17 @@ export class WeaponSystem {
       // Wrap everything nearby: instant knock-out, armour or not.
       let caught = 0;
       for (const p of [...game.plushies.list]) {
-        if (!p.grabbable || p.state === 'ko') continue;
+        if (!p.targetable) continue;
         const dx = p.pos.x - pos.x, dz = p.pos.z - pos.z;
         if (dx * dx + dz * dz > cfg.radius * cfg.radius || pos.y - p.pos.y > 2.5) continue;
+        caught++;
+        if (p.def.boss) {
+          this.applyHit(p, p.takeHit(3, pos), p.pos.clone().setY(0.6));
+          continue;
+        }
         p.hp = 0;
         p.squash = 1;
         p.knockOut(cfg.koTime);
-        caught++;
         this.applyHit(p, 'ko', p.pos.clone().setY(0.6));
       }
       game.particles.burst(pos, { count: 16, color: 0xffffff, speed: 2.5, size: 0.04, up: 1 });
@@ -305,7 +318,7 @@ export class WeaponSystem {
     }
 
     for (const p of [...game.plushies.list]) {
-      if (!p.grabbable || p.state === 'ko') continue;
+      if (!p.targetable) continue;
       _v.copy(p.pos).setY(p.pos.y + 0.5 * p.def.scale).sub(origin);
       const d = _v.length();
       if (d > cfg.range || _v.normalize().dot(ray.direction) < cosCone) continue;
@@ -315,6 +328,90 @@ export class WeaponSystem {
       if (this.raycaster.intersectObjects(game.solids, false).length) continue;
       const point = p.pos.clone().setY(0.6 * p.def.scale);
       this.applyHit(p, p.takeHit(cfg.damage, P.pos), point);
+    }
+  }
+
+  // Feather shotgun: a fan of short hitscan pellets.
+  fireFeather() {
+    const game = this.game;
+    const P = this.player;
+    const cfg = WEAPONS.feather;
+    Audio.play('feather');
+    const aim = this.aimRay();
+    const origin = aim.origin.clone();
+    const base = aim.direction.clone();
+    const from = P.vm.muzzle.getWorldPosition(new THREE.Vector3());
+    const targets = game.plushies.hitTargets();
+    const dmg = cfg.damage + Math.floor((game.stats.damage - 1) / 2);
+    const hits = new Map();
+    for (let i = 0; i < cfg.pellets; i++) {
+      _dir.copy(base);
+      _dir.x += (Math.random() - 0.5) * 2 * cfg.spread;
+      _dir.y += (Math.random() - 0.5) * 2 * cfg.spread;
+      _dir.z += (Math.random() - 0.5) * 2 * cfg.spread;
+      this.raycaster.set(origin, _dir.normalize());
+      this.raycaster.far = cfg.range;
+      const wall = P.worldHitDistance(this.raycaster);
+      const hit = this.raycaster.intersectObjects(targets, true).find((h) => h.distance < wall && P.plushieFromObject(h.object)?.targetable);
+      const end = hit ? hit.point : this.raycaster.ray.at(Math.min(wall, cfg.range), new THREE.Vector3());
+      if (i % 2 === 0) game.particles.tracer(from, end);
+      game.particles.spawn(end, new THREE.Vector3(0, -0.6, 0), { color: 0xffffff, size: 0.05, life: 0.5, gravity: 1 });
+      if (hit) {
+        const p = P.plushieFromObject(hit.object);
+        hits.set(p, (hits.get(p) ?? { n: 0, point: hit.point }));
+        hits.get(p).n++;
+      }
+    }
+    // pellets on the same plushie add up into one hit
+    for (const [p, h] of hits) if (p.targetable) this.applyHit(p, p.takeHit(dmg * h.n, P.pos), h.point);
+  }
+
+  // Water-balloon launcher: a lobbed balloon that splashes everything around where it lands.
+  fireBalloon() {
+    const ray = this.aimRay();
+    const mesh = new THREE.Mesh(balloonGeo, balloonMats[Math.floor(Math.random() * balloonMats.length)]);
+    this.player.vm.muzzle.getWorldPosition(mesh.position);
+    const vel = ray.direction.clone().multiplyScalar(WEAPONS.balloon.speed);
+    vel.y += 3;
+    this.game.scene.add(mesh);
+    this.balloons.push({ mesh, vel, life: 3 });
+    Audio.play('net');
+  }
+
+  updateBalloons(dt) {
+    const game = this.game;
+    const cfg = WEAPONS.balloon;
+    for (let i = this.balloons.length - 1; i >= 0; i--) {
+      const b = this.balloons[i];
+      b.life -= dt;
+      b.vel.y -= GRAVITY * 0.7 * dt;
+      b.mesh.position.addScaledVector(b.vel, dt);
+      b.mesh.scale.set(1, 1.15 + Math.sin(b.life * 20) * 0.08, 1);
+      const pos = b.mesh.position;
+      let impact = b.life <= 0 || pos.y <= 0.12 || game.colliders.pointInside(pos.x, pos.z, pos.y);
+      if (!impact) {
+        for (const p of game.plushies.list) {
+          if (!p.targetable) continue;
+          _v.copy(p.pos).setY(p.pos.y + 0.5 * p.def.scale);
+          if (_v.distanceTo(pos) < 0.6 * p.def.scale + 0.2) {
+            impact = true;
+            break;
+          }
+        }
+      }
+      if (!impact) continue;
+      const dmg = cfg.damage + Math.floor((game.stats.damage - 1) / 2);
+      for (const p of [...game.plushies.list]) {
+        if (!p.targetable) continue;
+        const dx = p.pos.x - pos.x, dz = p.pos.z - pos.z;
+        if (dx * dx + dz * dz > cfg.radius * cfg.radius || Math.abs(pos.y - p.pos.y) > 2.5) continue;
+        this.applyHit(p, p.takeHit(dmg, pos), p.pos.clone().setY(0.6 * p.def.scale));
+      }
+      game.particles.burst(pos, { count: 26, color: 0x9df2ff, speed: 4, size: 0.06, up: 2.5 });
+      game.particles.burst(pos, { count: 10, color: b.mesh.material.color.getHex(), speed: 3, size: 0.05, up: 2 });
+      Audio.play('splash');
+      b.mesh.removeFromParent();
+      this.balloons.splice(i, 1);
     }
   }
 

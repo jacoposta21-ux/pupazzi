@@ -52,7 +52,14 @@ export class Plushie {
   }
 
   get grabbable() {
+    if (this.noGrab) return false; // arena plushies pop instead of being carried
     return this.state === 'idle' || this.state === 'wander' || this.state === 'flee' || this.state === 'ko' || this.state === 'dazed';
+  }
+
+  // Can be shot at / targeted by automation (awake and on the ground).
+  get targetable() {
+    const s = this.state;
+    return s === 'idle' || s === 'wander' || s === 'flee' || s === 'dazed' || s === 'charge' || s === 'attack';
   }
 
   get isKO() {
@@ -74,9 +81,12 @@ export class Plushie {
     this.squash = 1;
     if (this.state === 'ko') return 'none';
     _dir.subVectors(this.pos, fromPos).setY(0).normalize();
-    this.vel.addScaledVector(_dir, 2.5);
-    this.state = 'flee';
-    this.timer = 3;
+    this.vel.addScaledVector(_dir, 2.5 / (this.def.boss ? 4 : 1));
+    // mid-hop (jumping in through a gate or off a spring) it keeps flying
+    if (this.state !== 'hop') {
+      this.state = 'flee';
+      this.timer = 3;
+    }
     if (this.armor > 0) {
       this.armor -= dmg;
       if (this.armor > 0) return 'armor';
@@ -135,8 +145,14 @@ export class Plushie {
     this.squash = Math.max(0, this.squash - dt * 5);
     this.rejectCooldown = Math.max(0, this.rejectCooldown - dt);
     let speed = 0;
+    // arena attackers never wander or flee: they go for the Stuffer
+    if (this.arena && (this.state === 'idle' || this.state === 'wander' || this.state === 'flee')) this.state = 'charge';
 
     switch (this.state) {
+      case 'charge':
+      case 'attack':
+        speed = ctx.arena ? ctx.arena.drive(this, dt) : 0;
+        break;
       case 'hop': {
         this.hopT += dt / this.hopDur;
         const t = Math.min(1, this.hopT);

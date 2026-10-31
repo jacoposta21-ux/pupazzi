@@ -191,6 +191,10 @@ export class Input {
   get firePressed() {
     return this.mousePressed[0] || this.touchPressed.has('fire');
   }
+  // arena: start the next round now
+  get readyPressed() {
+    return this.pressed.has('KeyG') || this.touchPressed.has('ready');
+  }
   get reloadPressed() {
     return this.pressed.has('KeyR') || this.touchPressed.has('reload');
   }

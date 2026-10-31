@@ -170,6 +170,24 @@ export class Viewmodel {
     mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
     this.spin = 0;
 
+    // Feather shotgun: double barrel with a pump and feathers poking out
+    g = model('feather', -0.3, 0.01);
+    mesh(new THREE.BoxGeometry(0.065, 0.07, 0.17), M.orange, g, v(0, 0, 0.03));
+    for (const sx of [-1, 1]) {
+      mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.25, 12), M.blue, g, v(sx * 0.02, 0.012, -0.16), null, [Math.PI / 2, 0, 0]);
+      mesh(new THREE.ConeGeometry(0.012, 0.06, 6), M.foam, g, v(sx * 0.02, 0.012, -0.3), null, [-Math.PI / 2, 0, 0]);
+    }
+    mesh(new THREE.BoxGeometry(0.06, 0.035, 0.08), M.pink, g, v(0, -0.03, -0.14));
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+
+    // Water-balloon launcher: wide tube with a balloon loaded in the mouth
+    g = model('balloon', -0.3, 0.02);
+    mesh(new THREE.BoxGeometry(0.065, 0.07, 0.15), M.orange, g, v(0, 0, 0.03));
+    mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.22, 16, 1, true), M.pink, g, v(0, 0.02, -0.14), null, [Math.PI / 2, 0, 0]);
+    mesh(new THREE.TorusGeometry(0.05, 0.01, 8, 18), M.blue, g, v(0, 0.02, -0.25));
+    this.balloonBall = mesh(sphere, new THREE.MeshStandardMaterial({ color: 0x3f8efc, roughness: 0.25 }), g, v(0, 0.02, -0.24), 0.04);
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+
     this.weapon = 'blaster';
     this.muzzle = this.muzzles.blaster;
 
@@ -294,6 +312,7 @@ export class Viewmodel {
     this.gun.position.set(GUN_POS.x, GUN_POS.y - this.reloadT * 0.06 + r * 0.01 - sw * 0.25, GUN_POS.z + r * 0.05);
     this.gun.rotation.set(r * 0.18 + this.reloadT * 0.5 - sw * 0.6, 0, this.reloadT * -0.5);
     this.netBall.visible = !!s.netLoaded;
+    this.balloonBall.visible = !!s.balloonLoaded;
     this.prism.rotation.y += dt * 3;
     // minigun barrels spin up while firing and wind down after
     this.spin = Math.max(0, this.spin - dt * 1.5);

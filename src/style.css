@@ -313,3 +313,30 @@ body.touch .level-box { width: 170px; }
 body.touch #mission { width: 190px; }
 
 #build-hint .bad { color: #ff9a9a; }
+
+/* ---------- Arena ---------- */
+body:not(.arena) .arena-only, body:not(.arena) #arena-hud { display: none !important; }
+body.arena .level-box, body.arena #hud-truck, body.arena #hud-machine, body.arena #mission, body.arena #hud-nuggets { display: none !important; }
+body.arena .tabs { display: none; }
+#arena-hud { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.arena-round { font-size: 26px; font-weight: 700; color: var(--yellow); text-shadow: 0 3px 0 rgba(0,0,0,0.35); }
+.core-bar { position: relative; width: 300px; max-width: 60vw; height: 22px; background: rgba(30, 20, 50, 0.75); border-radius: 999px; overflow: hidden; border: 2px solid rgba(255,255,255,0.25); }
+#arena-core-fill { height: 100%; width: 100%; background: var(--mint); transition: width 0.15s, background 0.3s; }
+#arena-core-fill.mid { background: var(--yellow); }
+#arena-core-fill.low { background: #ff4d4d; animation: pulse 0.4s infinite alternate; }
+#arena-core-text { position: absolute; inset: 0; font-size: 13px; font-weight: 600; line-height: 18px; }
+.arena-status { font-size: 16px; font-weight: 600; background: rgba(30, 20, 50, 0.6); border-radius: 999px; padding: 4px 14px; }
+.arena-status .key { color: var(--yellow); }
+#boss-bar { width: 360px; max-width: 70vw; }
+.boss-name { font-size: 15px; font-weight: 700; color: #ff8fa8; }
+#boss-bar .bar { height: 12px; }
+#boss-fill { height: 100%; background: linear-gradient(90deg, #ff4d6d, #ff9f1c); }
+#banner { position: absolute; top: 26%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; opacity: 0; transition: opacity 0.3s; }
+#banner.show { opacity: 1; animation: bannerIn 0.4s ease-out; }
+#banner-title { font-size: clamp(34px, 7vw, 60px); font-weight: 700; color: var(--yellow); text-shadow: 0 4px 0 rgba(0,0,0,0.4); }
+#banner-sub { font-size: 20px; text-shadow: 0 2px 4px rgba(0,0,0,0.6); }
+@keyframes bannerIn { from { transform: translate(-50%, -50%) scale(1.4); } to { transform: translate(-50%, -50%) scale(1); } }
+.shop-timer { font-size: 18px; font-weight: 600; color: var(--yellow); }
+.floater.coin { color: var(--yellow); }
+.record { color: var(--mint); font-weight: 600; }
+body.arena .no-arena { display: none; }

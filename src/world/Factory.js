@@ -5,6 +5,9 @@ import { floorTexture, asphaltTexture, wallTexture, hazardTexture, signTexture, 
 
 export function buildFactory(scene, colliders, { shadows }) {
   const solids = [];
+  // everything but the lights lives in one group, hidden while the arena is on
+  const root = new THREE.Group();
+  scene.add(root);
   const { floor: F, wallHeight: H, door: D } = LAYOUT;
   const T = 0.5; // wall thickness
 
@@ -13,7 +16,7 @@ export function buildFactory(scene, colliders, { shadows }) {
     m.position.set(x, y, z);
     m.castShadow = cast && shadows;
     m.receiveShadow = shadows;
-    scene.add(m);
+    root.add(m);
     if (collide) colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, y + h / 2);
     if (solid) solids.push(m);
     return m;
@@ -38,7 +41,7 @@ export function buildFactory(scene, colliders, { shadows }) {
   floor.rotation.x = -Math.PI / 2;
   floor.position.set((F.minX + F.maxX) / 2, 0, (F.minZ + F.maxZ) / 2);
   floor.receiveShadow = shadows;
-  scene.add(floor);
+  root.add(floor);
   solids.push(floor);
 
   const outside = new THREE.Mesh(
@@ -48,7 +51,7 @@ export function buildFactory(scene, colliders, { shadows }) {
   outside.rotation.x = -Math.PI / 2;
   outside.position.y = -0.02;
   outside.receiveShadow = shadows;
-  scene.add(outside);
+  root.add(outside);
 
   // Road stripes in front of the loading door
   const stripeMat = new THREE.MeshBasicMaterial({ color: 0xf0f0e0 });
@@ -56,7 +59,7 @@ export function buildFactory(scene, colliders, { shadows }) {
     const s = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.25), stripeMat);
     s.rotation.x = -Math.PI / 2;
     s.position.set(x, 0.0, LAYOUT.truckLaneZ + 3.2);
-    scene.add(s);
+    root.add(s);
   }
 
   // Painted unloading bay
@@ -66,7 +69,7 @@ export function buildFactory(scene, colliders, { shadows }) {
   );
   bay.rotation.x = -Math.PI / 2;
   bay.position.set(D.x, 0.01, 18);
-  scene.add(bay);
+  root.add(bay);
 
   // --- Walls ---
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTexture(), roughness: 0.85 });
@@ -102,7 +105,7 @@ export function buildFactory(scene, colliders, { shadows }) {
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(0, H, (F.minZ + F.maxZ) / 2);
-  scene.add(ceiling);
+  root.add(ceiling);
   const beamMat = new THREE.MeshStandardMaterial({ color: 0xe8455f, roughness: 0.6 });
   const lampMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff6d8, emissiveIntensity: 1.2 });
   for (let z = F.minZ + 4; z < F.maxZ; z += 8) {
@@ -143,7 +146,7 @@ export function buildFactory(scene, colliders, { shadows }) {
     );
     m.position.set(x, y, z);
     m.rotation.y = rotY;
-    scene.add(m);
+    root.add(m);
   };
   sign('STUFFED CO.', '#ff6b8b', 8, 2, 0, 5.6, F.minZ + 0.01, 0);
   sign('UNLOADING', '#2fb58a', 4, 1, D.x, 5.2, F.maxZ - 0.01, Math.PI);
@@ -155,12 +158,12 @@ export function buildFactory(scene, colliders, { shadows }) {
   );
   shutter.position.set(D.x, D.height / 2, F.maxZ + T / 2);
   shutter.castShadow = shadows;
-  scene.add(shutter);
+  root.add(shutter);
 
   // Shop terminal: a chunky kiosk with a glowing screen, facing the middle of the factory.
   const term = new THREE.Group();
   term.position.set(LAYOUT.terminal.x, 0, LAYOUT.terminal.z);
-  scene.add(term);
+  root.add(term);
   const kioskMat = new THREE.MeshStandardMaterial({ color: 0x2a2140, roughness: 0.5 });
   const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 0.8), kioskMat);
   base.position.y = 0.55;
@@ -194,12 +197,12 @@ export function buildFactory(scene, colliders, { shadows }) {
   const top = LAYOUT.belt.top;
   const chute = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x1b1d22 }));
   chute.position.set(F.minX + 0.1, top + 0.55, S.z);
-  scene.add(chute);
+  root.add(chute);
   const flapMat = new THREE.MeshStandardMaterial({ color: 0x2c6fd1, transparent: true, opacity: 0.8 });
   for (let i = -3; i <= 3; i++) {
     const flap = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.2, 0.2), flapMat);
     flap.position.set(F.minX + 0.3, top + 0.6, S.z + i * 0.21);
-    scene.add(flap);
+    root.add(flap);
   }
   const shipSign = new THREE.Mesh(
     new THREE.PlaneGeometry(3.2, 0.8),
@@ -207,7 +210,53 @@ export function buildFactory(scene, colliders, { shadows }) {
   );
   shipSign.position.set(F.minX + 0.01, 3.1, S.z);
   shipSign.rotation.y = Math.PI / 2;
-  scene.add(shipSign);
+  root.add(shipSign);
 
-  return { solids, sun, shutter, terminalScreen: screen };
+  // Arcade console: starts the arena mini-game.
+  const C = LAYOUT.console;
+  const cab = new THREE.Group();
+  cab.position.set(C.x, 0, C.z);
+  root.add(cab);
+  const cabMat = new THREE.MeshStandardMaterial({ color: 0x3f2a7a, roughness: 0.5 });
+  const cabBody = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.9, 0.9), cabMat);
+  cabBody.position.y = 0.95;
+  cabBody.castShadow = shadows;
+  cab.add(cabBody);
+  const side = new THREE.MeshStandardMaterial({ color: 0x5fe0b7, roughness: 0.5 });
+  for (const sx of [-1, 1]) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.1, 1), side);
+    s.position.set(sx * 0.58, 1.05, 0);
+    cab.add(s);
+  }
+  const cabScreen = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.85, 0.6),
+    new THREE.MeshBasicMaterial({ map: signTexture('ARENA', '#ff4d6d', '#fff', 512, 360), toneMapped: false }),
+  );
+  cabScreen.position.set(0, 1.45, 0.46);
+  cabScreen.rotation.x = -0.15;
+  cab.add(cabScreen);
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 0.45), new THREE.MeshStandardMaterial({ color: 0x2a2140 }));
+  deck.position.set(0, 1.0, 0.6);
+  deck.rotation.x = 0.25;
+  cab.add(deck);
+  const stick = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), new THREE.MeshStandardMaterial({ color: 0xff4d6d }));
+  stick.position.set(-0.25, 1.12, 0.62);
+  cab.add(stick);
+  ['#ffd23f', '#5fe0b7', '#3f8efc'].forEach((c, i) => {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.04, 10), new THREE.MeshStandardMaterial({ color: c }));
+    b.position.set(0.05 + i * 0.12, 1.1, 0.6);
+    b.rotation.x = 0.25;
+    cab.add(b);
+  });
+  const marquee = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.1, 0.32),
+    new THREE.MeshBasicMaterial({ map: signTexture('PLAY!', '#2a2140', '#ffd23f'), toneMapped: false }),
+  );
+  marquee.position.set(0, 2.0, 0.46);
+  cab.add(marquee);
+  cab.lookAt(LAYOUT.playerSpawn.x, 0, LAYOUT.playerSpawn.z);
+  solids.push(cabBody);
+  colliders.add(C.x - 0.6, C.x + 0.6, C.z - 0.6, C.z + 0.6, 2.1);
+
+  return { root, solids, sun, shutter, terminalScreen: screen };
 }

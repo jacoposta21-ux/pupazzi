@@ -44,11 +44,10 @@ export class Player {
     return this.vm.carryAnchor;
   }
 
-  respawn() {
-    const s = LAYOUT.playerSpawn;
+  respawn(s = LAYOUT.playerSpawn, yaw = 0) {
     this.pos.set(s.x, 0, s.z);
     this.vel.set(0, 0, 0);
-    this.yaw = 0;
+    this.yaw = yaw;
     this.pitch = -0.1;
   }
 
@@ -141,6 +140,7 @@ export class Player {
       this.aimed = null;
       this.aimingAtStuffer = false;
       this.atTerminal = false;
+      this.atConsole = false;
       build.update(dt, input);
     } else {
       // --- Weapons ---
@@ -150,6 +150,7 @@ export class Player {
       this.updateAim();
       if (input.grabPressed) {
         if (this.atTerminal && !this.aimed) this.game.openShop();
+        else if (this.atConsole && !this.aimed) this.game.enterArena();
         else this.tryGrab();
       }
       if (input.throwPressed) this.throwOne();
@@ -167,6 +168,7 @@ export class Player {
       ammoFrac: this.weapons.ammoFrac,
       vacuumOn: this.weapons.vacuumOn,
       netLoaded: this.weapons.ammo.net > 0 && this.weapons.reload.net <= 0,
+      balloonLoaded: this.weapons.ammo.balloon > 0 && this.weapons.reload.balloon <= 0,
       carried: this.carried,
     });
   }
@@ -229,10 +231,16 @@ export class Player {
     }
     this.aimingAtStuffer = this.carried.length > 0 && this.throwAssist() !== null;
     // the shop terminal: close and roughly in front
-    const T = this.game.terminalPos;
-    _v.subVectors(T, this.pos).setY(0);
+    this.atTerminal = this.facing(this.game.terminalPos);
+    // the arcade console that starts the arena (factory only)
+    this.atConsole = !!this.game.consolePos && !this.atTerminal && this.facing(this.game.consolePos);
+  }
+
+  // Close to a spot (within 2.8 m) and roughly looking at it.
+  facing(spot) {
+    _v.subVectors(spot, this.pos).setY(0);
     const dist = _v.length();
-    this.atTerminal = dist < 2.8 && this.forward.setY(0).normalize().dot(_v.normalize()) > 0.6;
+    return dist < 2.8 && this.forward.setY(0).normalize().dot(_v.normalize()) > 0.6;
   }
 
   tryGrab() {

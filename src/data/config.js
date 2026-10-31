@@ -29,6 +29,8 @@ export const LAYOUT = {
     belts: [-10, -11, -12, -13, -14, -15].map((x) => ({ x, z: -6, d: 2 })),
   },
   terminal: { x: 5, z: 13 },
+  // Arcade console that starts the arena mini-game
+  console: { x: -5, z: 13 },
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
 };
@@ -44,6 +46,15 @@ export const PLUSHIES = {
   // Matryoshka bear: big and slow, splits into minis when knocked out.
   mama: { hp: 4, walk: 1.0, flee: 3.2, value: 20, scale: 1.4, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', splitsInto: 'mini', splitCount: 3, nugget: 0 },
   mini: { hp: 1, walk: 1.8, flee: 5.0, value: 9, scale: 0.6, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', spawnOnly: true, nugget: 0.1 },
+  // ---- Arena only ----
+  // Firecracker pup: sprints at the Stuffer and blows up on it. Popped early, it blasts its friends instead.
+  bomber: { hp: 1, walk: 2.4, flee: 4, value: 0, scale: 0.8, color: 0xff4d4d, accent: 0xffe0a0, ears: 'round', fuse: true, spawnOnly: true, nugget: 0 },
+  // Bully bear: big, slow, hits hard.
+  brute: { hp: 7, walk: 1.0, flee: 3, value: 0, scale: 1.55, color: 0x6b4fa0, accent: 0xd9c8ff, ears: 'round', brows: true, spawnOnly: true, nugget: 0 },
+  // Bosses (every 5 rounds)
+  bossBear: { hp: 45, walk: 0.9, flee: 2, value: 0, scale: 2.6, color: 0xc48a55, accent: 0xf3d5b0, ears: 'round', crown: true, brows: true, boss: true, spawnOnly: true, nugget: 0 },
+  bossMama: { hp: 35, walk: 0.85, flee: 2, value: 0, scale: 2.5, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', crown: true, boss: true, splitsInto: 'mama', splitCount: 4, spawnOnly: true, nugget: 0 },
+  bossKnight: { hp: 30, armor: 30, walk: 1.0, flee: 2, value: 0, scale: 2.4, color: 0xe0a96d, accent: 0xfff3e0, ears: 'floppy', helmet: true, boss: true, spawnOnly: true, nugget: 0 },
 };
 
 // ---------- Factory level: grows with lifetime earnings, drives variety, difficulty and value ----------
@@ -157,6 +168,11 @@ export const PLACEABLES = [
   // legendary: paid with gold nuggets (10+ each)
   { id: 'megadock', icon: '🦾', nuggets: 10, size: [1.8, 1.8], legendary: true },
   { id: 'starTurret', icon: '🌟', nuggets: 12, size: [1.4, 1.4], legendary: true },
+  // arena only: defences and traps, bought with arena coins (prices in ARENA_SHOP)
+  { id: 'bonkbot', icon: '🔨', size: [1.2, 1.2], arena: true },
+  { id: 'glue', icon: '🍯', size: [2, 2], arena: true },
+  { id: 'spring', icon: '🪀', size: [1, 1], arena: true },
+  { id: 'mine', icon: '💣', size: [1, 1], arena: true },
 ];
 
 // Belts are bought by the metre (in packs) into the bag and laid as a path of 1 m tiles.
@@ -193,7 +209,103 @@ export const WEAPONS = {
   vacuum: { slot: 5, icon: '🌀', range: 9, cone: 0.5, pull: 7, grabDist: 1.3 },
   // Legendary rainbow ray: rapid beam that knocks out anything in one hit, armour included.
   rainbow: { slot: 6, icon: '🌈', cooldown: 0.12, range: 40 },
+  // Arena weapons. Feather shotgun: a short-range spray of foam feathers.
+  feather: { slot: 7, icon: '🪶', mag: 5, reload: 1.9, cooldown: 0.6, pellets: 8, spread: 0.08, damage: 1, range: 16 },
+  // Water-balloon launcher: lobbed balloons that splash everything around the impact.
+  balloon: { slot: 8, icon: '🎈', mag: 4, reload: 2.4, cooldown: 0.7, speed: 19, radius: 2.6, damage: 4 },
 };
+
+// ---------- Arena mode: waves of plushies attack the Stuffer through 4 gates ----------
+export const ARENA = {
+  coreHp: 200, // the Stuffer's health; +coreHpStep per shop level
+  coreHpStep: 50,
+  introTime: 10, // before round 1
+  breakTime: 30, // between rounds
+  retryTime: 6, // countdown before a round restarted with a video
+  bossEvery: 5,
+  adEvery: 7, // a short ad break every 7 rounds
+  attackGap: 1, // seconds between two hits of the same plushie
+  bosses: ['bossBear', 'bossMama', 'bossKnight'],
+  count: (r) => Math.round(5 + r * 2.2 + r * r * 0.08),
+  maxAlive: (r) => Math.min(26, 6 + r * 2),
+  spawnGap: (r) => Math.max(0.45, 2 - r * 0.08),
+  hpMult: (r) => 1 + (r - 1) * 0.14,
+  speedMult: (r) => Math.min(1.45, 1 + (r - 1) * 0.025),
+  bossHpMult: (r) => 1 + (r / 5 - 1) * 0.7,
+  clearBonus: (r) => 20 + r * 10,
+  // charge speed (m/s), coins when popped, damage per hit on the Stuffer
+  speed: { teddy: 2.1, bunny: 2.9, kitty: 2.4, knight: 2.0, mama: 1.6, mini: 2.8, bomber: 3.4, brute: 1.5, bossBear: 1.4, bossMama: 1.3, bossKnight: 1.4 },
+  coins: { teddy: 10, bunny: 12, kitty: 15, knight: 25, mama: 15, mini: 5, golden: 100, bomber: 15, brute: 40, bossBear: 300, bossMama: 300, bossKnight: 300 },
+  dmg: { teddy: 2, bunny: 2, kitty: 3, knight: 5, mama: 6, mini: 1, bomber: 25, brute: 10, bossBear: 18, bossMama: 15, bossKnight: 20 },
+  weights: (r) => ({
+    teddy: 10,
+    bunny: r >= 2 ? 2 + r * 0.5 : 0,
+    kitty: r >= 3 ? 1.5 + r * 0.4 : 0,
+    knight: r >= 4 ? 1 + r * 0.35 : 0,
+    bomber: r >= 6 ? 1 + r * 0.25 : 0,
+    mama: r >= 7 ? 1 + r * 0.2 : 0,
+    brute: r >= 8 ? 0.8 + r * 0.2 : 0,
+  }),
+  goldenChance: 0.25, // per round from round 3: a golden plushie that runs around (100 coins)
+};
+
+export function pickArenaType(round) {
+  const w = ARENA.weights(round);
+  let total = 0;
+  for (const k in w) total += w[k];
+  let r = Math.random() * total;
+  for (const k in w) {
+    r -= w[k];
+    if (r <= 0) return k;
+  }
+  return 'teddy';
+}
+
+// The arena shop (coins). Every run starts from the foam pistol only.
+export const ARENA_SHOP = [
+  { id: 'repair', kind: 'repair', cat: 'core', icon: '🩹' },
+  { id: 'coreHp', kind: 'upgrade', cat: 'core', icon: '🛡️', base: 250, growth: 1.5, max: 10 },
+  { id: 'feather', kind: 'weapon', cat: 'weapons', icon: '🪶', cost: 450 },
+  { id: 'net', kind: 'weapon', cat: 'weapons', icon: '🕸️', cost: 600 },
+  { id: 'confetti', kind: 'weapon', cat: 'weapons', icon: '🎉', cost: 800 },
+  { id: 'minigun', kind: 'weapon', cat: 'weapons', icon: '💨', cost: 1000 },
+  { id: 'balloon', kind: 'weapon', cat: 'weapons', icon: '🎈', cost: 1400 },
+  { id: 'rainbow', kind: 'weapon', cat: 'weapons', icon: '🌈', cost: 6000 },
+  { id: 'damage', kind: 'upgrade', cat: 'player', icon: '💥', base: 200, growth: 1.7, max: 6 },
+  { id: 'firerate', kind: 'upgrade', cat: 'player', icon: '⚡', base: 150, growth: 1.6, max: 6 },
+  { id: 'ammo', kind: 'upgrade', cat: 'player', icon: '🫧', base: 100, growth: 1.6, max: 6 },
+  { id: 'speed', kind: 'upgrade', cat: 'player', icon: '👟', base: 150, growth: 1.6, max: 5 },
+  { id: 'turret', kind: 'placeable', cat: 'defence', icon: '🔫', cost: 500, growth: 1.45 },
+  { id: 'bonkbot', kind: 'placeable', cat: 'defence', icon: '🔨', cost: 700, growth: 1.5 },
+  { id: 'glue', kind: 'placeable', cat: 'traps', icon: '🍯', cost: 150, growth: 1.25 },
+  { id: 'spring', kind: 'placeable', cat: 'traps', icon: '🪀', cost: 250, growth: 1.3 },
+  { id: 'mine', kind: 'placeable', cat: 'traps', icon: '💣', cost: 120, growth: 1.12 },
+];
+
+export const arenaItem = (id) => ARENA_SHOP.find((x) => x.id === id);
+export const repairCost = (round) => 80 + round * 15;
+
+// Price of an arena item: upgrades by level, placeables by how many were bought, weapons fixed.
+export function arenaCost(item, n = 0) {
+  if (item.kind === 'upgrade') return Math.round(item.base * Math.pow(item.growth, n));
+  if (item.kind === 'placeable') return Math.round(item.cost * Math.pow(item.growth, n));
+  return item.cost;
+}
+
+// A fresh run: same shape as a save so the shop, build mode and weapons work unchanged.
+export function newArenaRun() {
+  return {
+    cash: 0, // arena coins
+    nuggets: 0,
+    levels: {},
+    unlocks: {},
+    placed: [],
+    belts: [],
+    inventory: {},
+    bought: {},
+    totals: { stuffed: 0, knockouts: 0, nuggets: 0, missions: 0 },
+  };
+}
 
 // Cosmetics. slot 'decor' items toggle independently; the others are equipped one at a time.
 export const COSMETICS = [
@@ -260,5 +372,6 @@ export function newSave() {
     cosmetics: { owned: [], equipped: { ...DEFAULT_EQUIP }, decor: [] },
     tutorialDone: false,
     totals: { stuffed: 0, knockouts: 0, nuggets: 0, missions: 0 },
+    arena: { best: 0, bosses: 0, runs: 0 }, // arena record: highest round reached
   };
 }

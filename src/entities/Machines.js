@@ -128,7 +128,7 @@ class Turret extends Machine {
     let best = null;
     let bestD = this.range;
     for (const p of this.game.plushies.list) {
-      if (!p.grabbable || p.state === 'ko') continue;
+      if (!p.targetable) continue;
       const d = p.pos.distanceTo(this.pos);
       if (d < bestD) {
         bestD = d;
@@ -150,7 +150,7 @@ class Turret extends Machine {
     const to = best.pos.clone().setY(0.5 * best.def.scale);
     this.game.particles.tracer(from, to);
     Audio.play('turret');
-    if (this.star) {
+    if (this.star && !best.def.boss) {
       // legendary: always a clean knockout, armour or not
       best.armor = 0;
       if (best.helmet) best.helmet.visible = false;
@@ -589,6 +589,184 @@ class Extractor extends Machine {
   }
 }
 
+// ======================= Arena defences and traps =======================
+
+// Hits a plushie from a trap / bot and reports it like any other hit (KO handling included).
+function strike(game, p, dmg, from) {
+  if (p.state === 'gone' || p.state === 'ko') return;
+  const result = p.takeHit(dmg, from);
+  game.player.weapons.applyHit(p, result, p.pos.clone().setY(0.6 * p.def.scale), { quiet: true });
+}
+
+// ---------- Bonkbot: a little robot with a foam mallet that chases attackers near its pad ----------
+const BONK_RANGE = 9; // how far from its pad it will go
+const BONK_GAP = 0.7;
+
+class BonkBot extends Machine {
+  constructor(game, type, x, z, rot) {
+    super(game, type, x, z, rot);
+    const g = this.group;
+    add(g, new THREE.CylinderGeometry(0.55, 0.6, 0.1, 20), MAT.base, 0, 0.05, 0);
+    add(g, new THREE.CylinderGeometry(0.42, 0.42, 0.02, 20), MAT.yellow, 0, 0.11, 0);
+    // the bot itself walks around the arena
+    const bot = new THREE.Group();
+    this.bot = bot;
+    add(bot, new THREE.CylinderGeometry(0.28, 0.32, 0.5, 16), MAT.white, 0, 0.45, 0);
+    add(bot, new THREE.SphereGeometry(0.26, 16, 12), MAT.mint, 0, 0.78, 0);
+    const visor = add(bot, new THREE.BoxGeometry(0.3, 0.08, 0.05), MAT.dark, 0, 0.8, 0.23);
+    visor.castShadow = false;
+    for (const sx of [-1, 1]) add(bot, new THREE.SphereGeometry(0.11, 10, 8), MAT.dark, sx * 0.18, 0.12, 0);
+    this.arm = new THREE.Group();
+    this.arm.position.set(0.3, 0.6, 0);
+    bot.add(this.arm);
+    add(this.arm, new THREE.CylinderGeometry(0.03, 0.03, 0.55, 8), MAT.dark, 0, 0.27, 0);
+    const head = add(this.arm, new THREE.CylinderGeometry(0.13, 0.13, 0.3, 14), MAT.pink, 0, 0.55, 0);
+    head.rotation.z = Math.PI / 2;
+    bot.position.copy(this.pos);
+    game.scene.add(bot);
+    this.botPos = bot.position;
+    this.heading = 0;
+    this.cool = 0;
+    this.swing = 0;
+    this.target = null;
+  }
+
+  update(dt) {
+    const game = this.game;
+    this.cool -= dt;
+    this.swing = Math.max(0, this.swing - dt * 4);
+    // nearest attacker within range of the pad
+    let best = null;
+    let bestD = Infinity;
+    for (const p of game.plushies.list) {
+      if (!p.targetable || !p.arena) continue;
+      if (p.pos.distanceTo(this.pos) > BONK_RANGE) continue;
+      const d = p.pos.distanceTo(this.botPos);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    const goal = best ? best.pos : this.pos;
+    const dx = goal.x - this.botPos.x, dz = goal.z - this.botPos.z;
+    const dist = Math.hypot(dx, dz);
+    const reach = best ? 0.75 + best.radius : 0.05;
+    if (dist > reach) {
+      const sp = 3.4 * Math.min(1, dt);
+      this.botPos.x += (dx / dist) * Math.min(sp, dist - reach);
+      this.botPos.z += (dz / dist) * Math.min(sp, dist - reach);
+      game.colliders.resolve(this.botPos, 0.32, 0.2);
+    }
+    if (dist > 0.05) this.heading = Math.atan2(dx, dz);
+    this.bot.rotation.y = this.heading;
+    this.bot.position.y = dist > reach ? Math.abs(Math.sin(performance.now() / 90)) * 0.05 : 0;
+    if (best && dist <= reach + 0.1 && this.cool <= 0) {
+      this.cool = BONK_GAP;
+      this.swing = 1;
+      Audio.play('bonk');
+      strike(game, best, 1 + Math.floor((game.data.levels.damage || 0) / 2), this.botPos);
+    }
+    this.arm.rotation.x = -Math.sin(this.swing * Math.PI) * 1.8;
+  }
+
+  dispose() {
+    this.bot.removeFromParent();
+    super.dispose();
+  }
+}
+
+// ---------- Glue pad: plushies walking over it are slowed down ----------
+class Glue extends Machine {
+  constructor(game, type, x, z, rot) {
+    super(game, type, x, z, rot);
+    const g = this.group;
+    const goo = new THREE.MeshStandardMaterial({ color: 0xffb13d, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.9 });
+    const pad = add(g, new THREE.CylinderGeometry(0.95, 1, 0.04, 24), goo, 0, 0.02, 0);
+    pad.castShadow = false;
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.4;
+      const blob = add(g, new THREE.SphereGeometry(0.16, 10, 8), goo, Math.cos(a) * 0.55, 0.03, Math.sin(a) * 0.55);
+      blob.scale.y = 0.35;
+      blob.castShadow = false;
+    }
+    this.radius = 1;
+  }
+
+  // speed multiplier for a plushie standing at p
+  slows(p) {
+    return Math.hypot(p.x - this.pos.x, p.z - this.pos.z) < this.radius ? 0.4 : 1;
+  }
+}
+
+// ---------- Spring trap: bounces attackers back towards where they came from ----------
+class Spring extends Machine {
+  constructor(game, type, x, z, rot) {
+    super(game, type, x, z, rot);
+    const g = this.group;
+    add(g, new THREE.BoxGeometry(0.9, 0.08, 0.9), MAT.base, 0, 0.04, 0);
+    this.coil = new THREE.Group();
+    g.add(this.coil);
+    for (let i = 0; i < 3; i++) add(this.coil, new THREE.TorusGeometry(0.25, 0.04, 6, 16), MAT.white, 0, 0.12 + i * 0.09, 0).rotation.x = Math.PI / 2;
+    this.plate = add(g, new THREE.BoxGeometry(0.8, 0.06, 0.8), MAT.pink, 0, 0.36, 0);
+    this.cool = 0;
+    this.pop = 0;
+  }
+
+  update(dt) {
+    const game = this.game;
+    this.cool -= dt;
+    this.pop = Math.max(0, this.pop - dt * 3);
+    const k = Math.sin(this.pop * Math.PI);
+    this.plate.position.y = 0.36 + k * 0.5;
+    this.coil.scale.y = 1 + k * 2.5;
+    if (this.cool > 0) return;
+    const arena = game.arena;
+    for (const p of game.plushies.list) {
+      if (!p.arena || !p.targetable || p.pos.y > 0.3) continue;
+      if (Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) > 0.6 + p.radius * 0.5) continue;
+      this.cool = 2.5;
+      this.pop = 1;
+      Audio.play('boing');
+      strike(game, p, 1, this.pos);
+      if (p.def.boss || p.state === 'gone' || p.state === 'ko') break;
+      // fly 5 m away from the Stuffer
+      const c = arena.corePos;
+      const dx = p.pos.x - c.x, dz = p.pos.z - c.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const to = arena.clampInside(new THREE.Vector3(p.pos.x + (dx / d) * 5, 0, p.pos.z + (dz / d) * 5));
+      p.startHop(p.pos.clone(), to, 0.9);
+      break;
+    }
+  }
+}
+
+// ---------- Confetti mine: single use, pops everything around it ----------
+const MINE_TRIGGER = 1.0;
+const MINE_RADIUS = 2.8;
+const MINE_DAMAGE = 6;
+
+class Mine extends Machine {
+  constructor(game, type, x, z, rot) {
+    super(game, type, x, z, rot);
+    const g = this.group;
+    add(g, new THREE.CylinderGeometry(0.32, 0.38, 0.14, 16), MAT.dark, 0, 0.07, 0);
+    this.light = add(g, new THREE.SphereGeometry(0.07, 10, 8), MAT.glow, 0, 0.17, 0);
+    this.red = new THREE.MeshBasicMaterial({ color: 0xff4d4d });
+  }
+
+  update() {
+    const game = this.game;
+    this.light.material = Math.sin(performance.now() / 200) > 0 ? MAT.glow : this.red;
+    const hit = game.plushies.list.some(
+      (p) => p.arena && p.targetable && p.pos.y < 0.5 && Math.hypot(p.pos.x - this.pos.x, p.pos.z - this.pos.z) < MINE_TRIGGER + p.radius,
+    );
+    if (!hit) return;
+    const at = this.pos.clone().setY(0.4);
+    game.arena.blast(at, MINE_RADIUS, MINE_DAMAGE);
+    game.consumeMachine(this);
+  }
+}
+
 const CLASSES = {
   dock: Dock,
   megadock: Dock,
@@ -599,6 +777,10 @@ const CLASSES = {
   stuffer: StufferMachine,
   scanner: Scanner,
   extractor: Extractor,
+  bonkbot: BonkBot,
+  glue: Glue,
+  spring: Spring,
+  mine: Mine,
 };
 
 export function createMachine(game, type, x, z, rot) {
@@ -632,6 +814,21 @@ export function buildGhost(type) {
     shape(new THREE.BoxGeometry(1, 1.5, 1), 0, 0.75, 0);
   } else if (type === 'turret' || type === 'starTurret') shape(new THREE.CylinderGeometry(0.45, 0.55, 1.2, 12), 0, 0.6, 0);
   else if (type === 'lure') shape(new THREE.CylinderGeometry(0.35, 0.35, 2, 12), 0, 1, 0);
+  else if (type === 'bonkbot') {
+    shape(new THREE.CylinderGeometry(0.3, 0.3, 1, 12), 0, 0.5, 0);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(BONK_RANGE - 0.08, BONK_RANGE, 64), mat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    g.add(ring);
+  } else if (type === 'glue') shape(new THREE.CylinderGeometry(0.95, 0.95, 0.06, 24), 0, 0.03, 0);
+  else if (type === 'spring') shape(new THREE.BoxGeometry(0.8, 0.4, 0.8), 0, 0.2, 0);
+  else if (type === 'mine') {
+    shape(new THREE.CylinderGeometry(0.35, 0.35, 0.15, 16), 0, 0.08, 0);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(MINE_RADIUS - 0.06, MINE_RADIUS, 48), mat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    g.add(ring);
+  }
   else if (type === 'arm') {
     shape(new THREE.CylinderGeometry(0.55, 0.65, 0.6, 16), 0, 0.3, 0);
     // reach circle

@@ -88,6 +88,32 @@ export function buildPlushie(def, shadows) {
     part(G.sphere, mat(0xffffff), [0.39, 0.03, 0.35], [0, 0.62, 0], body, false);
     part(G.lowSphere, mat(0xff8fa8), [0.07, 0.07, 0.03], [0, 0.42, 0.36], body, false);
   }
+  // Arena: angry brows (bullies and bosses)
+  if (def.brows) {
+    for (const sx of [-1, 1]) {
+      const brow = part(G.capsule, black, [0.018, 0.03, 0.018], [sx * 0.1, 1.03, 0.27], body, false);
+      brow.rotation.z = Math.PI / 2 + sx * 0.45;
+    }
+  }
+  // Arena: firecracker fuse with a glowing spark
+  if (def.fuse) {
+    const fuse = part(G.capsule, mat(0x3a2a20), [0.025, 0.06, 0.025], [0, 1.25, 0], body, false);
+    fuse.rotation.z = 0.3;
+    part(G.star, mat(0xffd23f, { emissive: 0xff8800, emissiveIntensity: 1.5 }), [0.06, 0.06, 0.06], [-0.05, 1.36, 0], body, false);
+  }
+  // Boss crown: silver with pink gems (no gold on plushies)
+  if (def.crown) {
+    const crown = new THREE.Group();
+    const silver = mat(0xdfe6ef, { metalness: 0.8, roughness: 0.25 });
+    part(new THREE.CylinderGeometry(1, 1, 1, 16, 1, true), silver, [0.2, 0.08, 0.2], [0, 0, 0], crown, false);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      part(G.cone, silver, [0.05, 0.12, 0.05], [Math.cos(a) * 0.19, 0.09, Math.sin(a) * 0.19], crown, false);
+      part(G.lowSphere, mat(0xff4d8d, { emissive: 0x661030 }), [0.03, 0.03, 0.03], [Math.cos(a) * 0.2, 0.01, Math.sin(a) * 0.2], crown, false);
+    }
+    crown.position.set(0, 1.2, 0);
+    body.add(crown);
+  }
   if (def.ears === 'pointy') {
     // a little tail for the kitty
     const tail = part(G.capsule, fur, [0.05, 0.12, 0.05], [0, 0.35, -0.38], body, false);

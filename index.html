@@ -14,7 +14,7 @@
       <div id="hud" class="hidden">
         <div class="hud-top-left">
           <div class="pill-row">
-            <div class="pill cash" id="hud-cash-pill">💰 <span id="hud-cash">$0</span></div>
+            <div class="pill cash" id="hud-cash-pill"><span id="hud-cash-icon">💰</span> <span id="hud-cash">$0</span></div>
             <div class="pill nugget" id="hud-nuggets">💎 0</div>
           </div>
           <div class="level-box">
@@ -25,6 +25,12 @@
         </div>
         <div class="hud-top-center">
           <div id="hud-truck" class="truck-status"></div>
+          <div id="arena-hud">
+            <div class="arena-round" id="arena-round"></div>
+            <div class="core-bar"><div id="arena-core-fill"></div><span id="arena-core-text"></span></div>
+            <div class="arena-status" id="arena-status"></div>
+            <div id="boss-bar" class="hidden"><div class="boss-name" id="boss-name"></div><div class="bar"><div id="boss-fill"></div></div></div>
+          </div>
         </div>
         <div class="hud-top-right">
           <div class="pill" id="hud-machine"></div>
@@ -47,6 +53,7 @@
           <div id="build-hint" class="sub"></div>
         </div>
         <div id="toast"></div>
+        <div id="banner"><div id="banner-title"></div><div id="banner-sub"></div></div>
       </div>
 
       <!-- Touch controls -->
@@ -62,6 +69,7 @@
           <button class="tbtn" data-btn="swap">🔁</button>
           <button class="tbtn" data-btn="build">🔨</button>
           <button class="tbtn" data-btn="sell">💲</button>
+          <button class="tbtn arena-only" data-btn="ready">▶️</button>
         </div>
       </div>
 
@@ -89,6 +97,7 @@
             <p data-i18n="ctrlBuild" class="desktop-only"></p>
             <p data-i18n="ctrlTouch" class="touch-only"></p>
             <p data-i18n="ctrlGoal" class="goal"></p>
+            <p data-i18n="ctrlArena" class="goal"></p>
           </div>
         </div>
       </div>
@@ -107,6 +116,7 @@
             <button class="btn small set-music"></button>
             <button class="btn small set-quality"></button>
           </div>
+          <button id="btn-leave-arena" class="btn small arena-only" data-i18n="leaveArena"></button>
           <button id="btn-quit" class="btn small ghost" data-i18n="quitMenu"></button>
         </div>
       </div>
@@ -117,7 +127,7 @@
           <div class="shop-head">
             <h2 data-i18n="terminalTitle"></h2>
             <div class="pill-row">
-              <div class="pill cash big">💰 <span id="shop-cash"></span></div>
+              <div class="pill cash big"><span class="no-arena">💰</span> <span id="shop-cash"></span></div>
               <div class="pill nugget big">💎 <span id="shop-nuggets"></span></div>
             </div>
           </div>
@@ -129,6 +139,7 @@
             <button class="tab" data-tab="style" data-i18n="tabStyle"></button>
             <button class="tab" data-tab="bonus" data-i18n="tabBonus"></button>
           </div>
+          <div id="shop-timer" class="shop-timer arena-only"></div>
           <div id="shop"></div>
           <button id="btn-close-shop" class="btn primary" data-i18n="closeShop"></button>
         </div>
@@ -141,6 +152,19 @@
           <h2 data-i18n="victoryTitle"></h2>
           <p id="victory-text"></p>
           <button id="btn-victory" class="btn primary" data-i18n="victoryContinue"></button>
+        </div>
+      </div>
+
+      <!-- Arena: game over -->
+      <div id="arena-over" class="screen hidden">
+        <div class="panel">
+          <div class="victory-emoji">🧸💥</div>
+          <h2 data-i18n="arenaOverTitle"></h2>
+          <p id="arena-over-text"></p>
+          <p id="arena-over-record" class="record"></p>
+          <button id="btn-arena-retry" class="btn primary"></button>
+          <button id="btn-arena-restart" class="btn" data-i18n="arenaRestart"></button>
+          <button id="btn-arena-leave" class="btn small ghost" data-i18n="leaveArena"></button>
         </div>
       </div>
 

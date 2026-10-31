@@ -14,19 +14,25 @@ export class Particles {
     this.tracerMat = new THREE.MeshBasicMaterial({ color: 0xfff6c8, transparent: true, opacity: 0.85 });
   }
 
-  mat(color) {
-    let m = this.mats.get(color);
+  // soft: self-lit (cotton fluff stays white even in shadow)
+  mat(color, soft = false) {
+    const key = soft ? `${color}s` : color;
+    let m = this.mats.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial({ color, roughness: 0.8 });
-      this.mats.set(color, m);
+      if (soft) {
+        m.emissive.setHex(color);
+        m.emissiveIntensity = 0.55;
+      }
+      this.mats.set(key, m);
     }
     return m;
   }
 
-  burst(pos, { count = 8, color = 0xffffff, speed = 3, size = 0.06, life = 0.6, gravity = 8, up = 1.5 } = {}) {
+  burst(pos, { count = 8, color = 0xffffff, speed = 3, size = 0.06, life = 0.6, gravity = 8, up = 1.5, soft = false } = {}) {
     for (let i = 0; i < count; i++) {
       const m = this.pool.pop() ?? new THREE.Mesh(geo);
-      m.material = this.mat(color);
+      m.material = this.mat(color, soft);
       m.position.copy(pos);
       m.scale.setScalar(size * (0.6 + Math.random() * 0.8));
       m.userData.vel = new THREE.Vector3(

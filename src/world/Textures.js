@@ -147,3 +147,53 @@ export function shutterTexture() {
   }
   return toTexture(c, [3, 2]);
 }
+
+// Arena lawn: mown stripes with a little noise.
+export function grassTexture(repeat = [6, 6]) {
+  const [c, g] = makeCanvas(256, 256);
+  for (let i = 0; i < 4; i++) {
+    g.fillStyle = i % 2 ? '#7cc86a' : '#6dbb5d';
+    g.fillRect(0, i * 64, 256, 64);
+  }
+  for (let i = 0; i < 2500; i++) {
+    const v = Math.random();
+    g.fillStyle = v < 0.5 ? 'rgba(40,110,40,0.35)' : 'rgba(200,240,160,0.25)';
+    g.fillRect(Math.random() * 256, Math.random() * 256, 1, 3);
+  }
+  return toTexture(c, repeat);
+}
+
+// Swirly portal for the arena gates.
+export function portalTexture(color) {
+  const [c, g] = makeCanvas(128, 128);
+  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  grd.addColorStop(0, '#ffffff');
+  grd.addColorStop(0.35, color);
+  grd.addColorStop(1, '#2a2140');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = 'rgba(255,255,255,0.55)';
+  g.lineWidth = 5;
+  for (let k = 0; k < 3; k++) {
+    g.beginPath();
+    for (let a = 0; a < Math.PI * 4; a += 0.1) {
+      const r = a * 4.5;
+      const x = 64 + Math.cos(a + (k * Math.PI * 2) / 3) * r;
+      const y = 64 + Math.sin(a + (k * Math.PI * 2) / 3) * r;
+      if (a === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  return toTexture(c);
+}
+
+// Awning stripes for the arena shop stall.
+export function stripeTexture(a = '#ff6b8b', b = '#ffffff') {
+  const [c, g] = makeCanvas(128, 32);
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = i % 2 ? b : a;
+    g.fillRect(i * 16, 0, 16, 32);
+  }
+  return toTexture(c);
+}

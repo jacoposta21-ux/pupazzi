@@ -13,11 +13,6 @@ const REACH = 14;
 const MAX_PATH = 80;
 const CENTER = new THREE.Vector2(0, 0);
 const FLOOR = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-// Areas that must stay free: the unloading bay at the door and the shop terminal.
-const KEEP_CLEAR = [
-  { minX: LAYOUT.door.x - 5, maxX: LAYOUT.door.x + 5, minZ: LAYOUT.floor.maxZ - 5, maxZ: LAYOUT.floor.maxZ },
-  { minX: LAYOUT.terminal.x - 1.5, maxX: LAYOUT.terminal.x + 1.5, minZ: LAYOUT.terminal.z - 1.5, maxZ: LAYOUT.terminal.z + 1.5 },
-];
 const overlaps = (a, b) => a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
 // Stuffers, scanners, extractors (and belts) live on whole metres so they line up with each other.
 const METRE_GRID = ['stuffer', 'scanner', 'extractor'];
@@ -130,7 +125,7 @@ export class BuildMode {
     const f = footprint(type, x, z, rot);
     const F = LAYOUT.floor;
     if (f.minX < F.minX + 0.3 || f.maxX > F.maxX - 0.3 || f.minZ < F.minZ + 0.3 || f.maxZ > F.maxZ - 0.3) return false;
-    for (const k of KEEP_CLEAR) if (overlaps(f, k)) return false;
+    for (const k of this.game.keepClear) if (overlaps(f, k)) return false;
     let solid = [f];
     if (type === 'scanner') {
       const d = dir(rot);
@@ -153,7 +148,7 @@ export class BuildMode {
     const F = LAYOUT.floor;
     if (r.minX < F.minX || r.maxX > F.maxX || r.minZ < F.minZ + 0.3 || r.maxZ > F.maxZ - 0.3) return false;
     if (this.game.beltNet.at(x, z)) return !this.game.beltNet.at(x, z).fixed;
-    for (const k of KEEP_CLEAR) if (overlaps(r, k)) return false;
+    for (const k of this.game.keepClear) if (overlaps(r, k)) return false;
     for (const b of this.game.colliders.boxes) {
       if (b.disabled || b.height <= 0.05 || !overlaps(r, b) || this.isTileCollider(b)) continue;
       return false;

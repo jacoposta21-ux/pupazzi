@@ -22,9 +22,28 @@ Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I 
   - Estrattore di pepite: accetta solo lattine (da un nastro o lanciate dentro), estrae la pepita e fa uscire la lattina dal davanti.
 - **Lattine**: sono oggetti fisici. Si raccolgono con E e si lanciano con F: il lancio assistito le manda nella spedizione.
 - **Pepite d'oro** nascoste in alcuni pupazzi: non si vedono mai sui pupazzi, e nelle lattine solo dopo il passaggio sotto uno Scanner. La pepita resta sigillata nella lattina e si recupera solo con l'Estrattore. Una lattina con la pepita che arriva alla spedizione viene venduta normalmente e la pepita è persa, senza alcun avviso. Le pepite servono per gli oggetti **leggendari**, che costano almeno 10 pepite: Mega Fluffbot (10), Sparabot Stellare (12), Raggio Arcobaleno (15).
-- **Armi** (tasti 1-6): blaster, Mitragliatrice a schiuma (40 colpi rapidi tenendo premuto), Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
-- **Annunci**: solo video facoltativi nella scheda Bonus del terminale: **+1 pepita d'oro** oppure **monete in proporzione al livello** (100 al livello 1, circa 2.700 al livello 10). Ogni tipo di video si può guardare una volta ogni 3 minuti. Non ci sono annunci forzati.
+- **Armi** (tasti 1-6 in fabbrica, 7-8 per le armi dell'arena): blaster, Mitragliatrice a schiuma (40 colpi rapidi tenendo premuto), Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
+- **Annunci**: solo video facoltativi nella scheda Bonus del terminale: **+1 pepita d'oro** oppure **monete in proporzione al livello** (100 al livello 1, circa 2.700 al livello 10). Ogni tipo di video si può guardare una volta ogni 3 minuti. In fabbrica non ci sono annunci forzati; nell'Arena c'è una breve pausa pubblicitaria ogni 7 round.
 - **Robot**: si muovono con un calcolo del percorso (A*) su una griglia da 0,5 m che si aggiorna quando cambia la fabbrica. Ignorano i pupazzi sopra i nastri e lasciano perdere per qualche secondo i bersagli irraggiungibili.
+
+## Modalità Arena
+
+Un minigioco che si avvia dalla **console arcade** in fabbrica (E davanti alla console). La fabbrica viene messa da parte e si gioca su un prato aperto con l'**Imbottitrice da difendere** al centro.
+
+- I pupazzi arrivano a **round** saltando dentro dai **4 portali**, uno per lato, e attaccano l'Imbottitrice. Quando l'Imbottitrice arriva a 0 di vita la partita finisce.
+- I pupazzi colpiti fino al KO **scoppiano in una nuvola di cotone** e danno **monete dell'arena** (🪙), più un bonus a fine round.
+- Si parte sempre con la **sola pistola a schiuma**. Tra un round e l'altro c'è una **pausa di 30 s** (G per iniziare subito): si spendono le monete alla **bancarella del negozio** a lato della mappa, che durante i round è chiusa.
+  - Imbottitrice: kit di riparazione, corazza (+50 di vita massima, potenziabile).
+  - Armi: Sparapiume (rosa di piume a corto raggio), Lanciareti, Cannone a coriandoli, Minigun, **Lanciapalloncini** (gavettoni ad area), Raggio Arcobaleno.
+  - Potenziamenti della pistola e della velocità.
+  - Robot e trappole, piazzati con B come in fabbrica: Sparabot, **Bonkbot** (robottino col martello che insegue i pupazzi vicini alla sua base), **Pozza di colla** (rallenta), **Trappola a molla** (rispedisce il pupazzo verso la sua porta), **Mina di coriandoli** (monouso, ad area).
+- Pupazzi nuovi: **Petardo** (corre ed esplode sull'Imbottitrice; se lo colpisci prima, esplode tra i suoi amici) e **Orsone Bullo** (grosso, lento, picchia forte). Ogni tanto passa un **Orsetto d'Oro** che non attacca e vale 100 monete se lo prendi prima che scappi.
+- **Boss ogni 5 round**: Re Orsetto, Regina Matrioska (si divide in Matrioske) e Cavaliere Gigante. Non si possono abbattere con un colpo solo. Ogni boss sconfitto dà **1 pepita d'oro** da spendere nella modalità classica.
+- **Pausa pubblicitaria** breve ogni 7 round, durante la pausa tra i round.
+- Quando si perde: un **video facoltativo** fa rigiocare il round perso con l'Imbottitrice riparata (tenendo armi, monete e difese). In alternativa si ricomincia dal round 1 o si torna in fabbrica.
+- Il **record** (round più alto raggiunto) resta salvato e si vede sulla console.
+
+Le monete, le armi e le difese valgono solo per la partita in corso; record, boss sconfitti e pepite finiscono nel salvataggio della fabbrica. Tutti i numeri (round, vita, danni, monete, prezzi) sono in `ARENA` e `ARENA_SHOP` in `src/data/config.js`.
 
 ## Sviluppo
 
@@ -41,7 +60,7 @@ npm run build    # output in dist/
 3. Carica lo zip dal portale sviluppatori di CrazyGames.
 
 L'SDK v3 di CrazyGames viene caricato a runtime da `src/systems/Platform.js` e gestisce:
-`loadingStart/Stop`, `gameplayStart/Stop`, `happytime` (missione completata, vittoria), annunci `rewarded` facoltativi (nascosti se c'è un adblock) e i salvataggi in cloud tramite `SDK.data`.
+`loadingStart/Stop`, `gameplayStart/Stop`, `happytime` (missione completata, vittoria), annunci `rewarded` facoltativi (nascosti se c'è un adblock), un annuncio `midgame` ogni 7 round dell'Arena e i salvataggi in cloud tramite `SDK.data`.
 Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in `localStorage`.
 
 ## Architettura
@@ -58,6 +77,8 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 | `src/entities/Truck.js` | Consegne alla porta sul retro |
 | `src/entities/Robot.js` | Fluffbot: raccoglie i pupazzi storditi e li consegna all'Imbottitrice |
 | `src/entities/Viewmodel.js` | Mani, armi e pupazzi in mano in prima persona |
+| `src/systems/Arena.js` | Modalità Arena: round, spawn dai portali, IA d'attacco, boss, monete, negozio, sconfitta e riprova |
+| `src/world/ArenaWorld.js` | Mappa dell'arena: prato, siepi, 4 portali, ripari, bancarella del negozio |
 | `src/entities/Weapons.js` | Logica delle 4 armi (colpi, rete, cono di coriandoli, aspirazione) |
 | `src/world/Decor.js` | Decorazioni acquistabili della fabbrica |
 | `src/systems/Tutorial.js` | Tutorial guidato (fino al terminale) |
