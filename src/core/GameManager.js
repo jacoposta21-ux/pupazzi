@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import {
   SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, UPGRADES, QUALITY, UNLOCKS, COSMETICS, DEFAULT_EQUIP, BELT_PRICE,
-  PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS,
-  computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned,
+  PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS, AD_COOLDOWN, adCashReward,
+  computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned, BELT_PACK, SELL_RATIO,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
@@ -19,6 +19,7 @@ import { Truck } from '../entities/Truck.js';
 import { createMachine } from '../entities/Machines.js';
 import { ItemManager } from '../entities/Items.js';
 import { BeltNetwork } from '../entities/Belts.js';
+import { Nav } from '../systems/Nav.js';
 import { Tutorial } from '../systems/Tutorial.js';
 import { Missions } from '../systems/Missions.js';
 import { BuildMode } from '../systems/BuildMode.js';
@@ -99,6 +100,7 @@ export class GameManager {
     Platform.onAdEnd = () => Audio.setAdMuted(false);
 
     this.colliders = new Colliders();
+    this.nav = new Nav(this);
     const factory = buildFactory(this.scene, this.colliders, { shadows: this.shadows });
     this.solids.push(...factory.solids);
     this.sun = factory.sun;
@@ -190,12 +192,12 @@ export class GameManager {
     this.persist();
   }
 
-  // Lays a path of belt tiles, paying BELT_PRICE per new metre. Existing tiles on the path are re-pointed for free.
+  // Lays a path of belt tiles, using one metre from the bag per new tile. Existing tiles on the path are re-pointed.
   buildBelts(cells) {
-    const fresh = cells.filter((c) => !this.beltNet.at(c.x, c.z));
-    const cost = fresh.length * BELT_PRICE;
-    if (this.data.cash < cost) return false;
-    this.data.cash -= cost;
+    const inv = this.data.inventory;
+    const fresh = cells.filter((c) => !this.beltNet.at(c.x, c.z)).length;
+    if ((inv.belt || 0) < fresh) return false;
+    inv.belt -= fresh;
     for (const c of cells) this.beltNet.add(c.x, c.z, c.d, { curve: c.curve });
     this.data.belts = this.beltNet.serialize();
     Audio.play('place');
@@ -203,12 +205,59 @@ export class GameManager {
     return true;
   }
 
+  // Picking a belt tile up puts the metre back in the bag.
   pickUpBelt(tile) {
     if (tile.fixed) return;
     this.beltNet.remove(tile);
-    this.data.cash += BELT_PRICE; // full refund
+    this.data.inventory.belt = (this.data.inventory.belt || 0) + 1;
     this.data.belts = this.beltNet.serialize();
     Audio.play('grab');
+    this.persist();
+  }
+
+  // ---------- Selling things back (half price) ----------
+
+  // What selling one of `type` gives back: { cash } or { nuggets }.
+  resaleValue(type) {
+    if (type === 'belt') return { cash: Math.round(BELT_PRICE * SELL_RATIO) };
+    const def = PLACEABLES.find((x) => x.id === type);
+    if (def.nuggets) return { nuggets: Math.floor(def.nuggets * SELL_RATIO) };
+    return { cash: Math.round(placeableCost(def, Math.max(0, (this.data.bought[type] || 0) - 1)) * SELL_RATIO) };
+  }
+
+  refund(type) {
+    const v = this.resaleValue(type);
+    if (v.cash) this.data.cash += v.cash;
+    if (v.nuggets) this.data.nuggets += v.nuggets;
+    // the next one you buy costs what this one did
+    if (type !== 'belt' && this.data.bought[type] > 0) this.data.bought[type]--;
+    Audio.play('cash');
+    this.ui.toast('sold', { v: v.cash ? this.ui.money(v.cash) : `💎 ${v.nuggets}` });
+  }
+
+  sellMachine(m) {
+    m.dispose();
+    this.machines = this.machines.filter((x) => x !== m);
+    const i = this.data.placed.findIndex((p) => p.type === m.type && p.x === m.pos.x && p.z === m.pos.z && p.rot === m.rot);
+    if (i >= 0) this.data.placed.splice(i, 1);
+    this.particles.burst(m.pos.clone().setY(0.6), { count: 12, color: 0xffd23f, speed: 2, size: 0.05, up: 2 });
+    this.refund(m.type);
+    this.persist();
+  }
+
+  sellBelt(tile) {
+    if (tile.fixed) return;
+    this.beltNet.remove(tile);
+    this.data.belts = this.beltNet.serialize();
+    this.refund('belt');
+    this.persist();
+  }
+
+  sellFromBag(type) {
+    const inv = this.data.inventory;
+    if (!(inv[type] > 0)) return;
+    inv[type]--;
+    this.refund(type);
     this.persist();
   }
 
@@ -301,6 +350,19 @@ export class GameManager {
     }
     this.data.bought[id] = (this.data.bought[id] || 0) + 1;
     this.data.inventory[id] = (this.data.inventory[id] || 0) + 1;
+    this.lastBought = id;
+    Audio.play('buy');
+    this.persist();
+    return true;
+  }
+
+  // Belts: a pack of BELT_PACK metres into the bag.
+  buyBelts() {
+    const cost = BELT_PRICE * BELT_PACK;
+    if (this.data.cash < cost) return false;
+    this.data.cash -= cost;
+    this.data.inventory.belt = (this.data.inventory.belt || 0) + BELT_PACK;
+    this.lastBought = 'belt';
     Audio.play('buy');
     this.persist();
     return true;
@@ -333,13 +395,27 @@ export class GameManager {
   }
 
   // Rewarded ads (the only ads in the game) pay a gold nugget.
-  async watchAd() {
+  // kind: 'nugget' (+1 nugget) or 'cash' (level-scaled cash). Each has its own cooldown.
+  async watchAd(kind) {
+    if (this.adWait(kind) > 0) return false;
     const ok = await Platform.ad('rewarded');
     if (!ok) return false;
-    this.addNuggets(AD_NUGGETS);
-    Audio.play('nugget');
+    (this.adLast ??= {})[kind] = performance.now();
+    if (kind === 'cash') {
+      this.addEarnings(adCashReward(this.level));
+      Audio.play('cash');
+    } else {
+      this.addNuggets(AD_NUGGETS);
+      Audio.play('nugget');
+    }
     this.persist();
     return true;
+  }
+
+  // Seconds left before this kind of video can be watched again.
+  adWait(kind) {
+    const last = this.adLast?.[kind];
+    return last ? Math.max(0, AD_COOLDOWN - (performance.now() - last) / 1000) : 0;
   }
 
   refreshStats() {
@@ -357,6 +433,7 @@ export class GameManager {
     this.player.vm.applySkin(skin.colors, skin.metal);
     for (const s of this.stuffers) s.bodyMat.color.setHex(paint.color);
     this.decor.apply(cos.decor);
+    this.colliders.version++; // decorations toggle colliders on/off
   }
 
   // ---------- State ----------
@@ -553,8 +630,9 @@ export class GameManager {
     this.ui.showShop(false);
     this.persist();
     Audio.setMusicMood({ duck: 1 });
-    // jump straight into placing anything just bought
-    if (this.build.inventoryTypes.length && !this.build.active) this.build.enter();
+    // jump straight into placing what was just bought
+    if (this.lastBought && this.data.inventory[this.lastBought] > 0 && !this.build.active) this.build.enter(this.lastBought);
+    this.lastBought = null;
     this.resume();
   }
 

@@ -1,9 +1,10 @@
-// Weapon system: foam blaster, net launcher, confetti cannon and plushie vacuum.
+// Weapon system: foam blaster, foam minigun, net launcher, confetti cannon, plushie vacuum, rainbow ray.
 import * as THREE from 'three';
 import { WEAPONS, GRAVITY } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 
-export const WEAPON_ORDER = ['blaster', 'net', 'confetti', 'vacuum', 'rainbow'];
+export const WEAPON_ORDER = ['blaster', 'minigun', 'net', 'confetti', 'vacuum', 'rainbow'];
+const MAGAZINE_WEAPONS = ['blaster', 'minigun', 'net', 'confetti'];
 const RAINBOW = [0xff4d6d, 0xff9f1c, 0xffd23f, 0x5fe0b7, 0x3f8efc, 0x9b5de5];
 const CENTER = new THREE.Vector2(0, 0);
 const KO_COLORS = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0xffffff];
@@ -21,8 +22,8 @@ export class WeaponSystem {
     this.player = player;
     this.game = player.game;
     this.current = 'blaster';
-    this.ammo = { blaster: 0, net: 0, confetti: 0 };
-    this.reload = { blaster: 0, net: 0, confetti: 0 };
+    this.ammo = Object.fromEntries(MAGAZINE_WEAPONS.map((id) => [id, 0]));
+    this.reload = Object.fromEntries(MAGAZINE_WEAPONS.map((id) => [id, 0]));
     this.cooldown = 0;
     this.nets = [];
     this.vacuumOn = false;
@@ -56,7 +57,7 @@ export class WeaponSystem {
   }
 
   refill() {
-    for (const id of ['blaster', 'net', 'confetti']) {
+    for (const id of MAGAZINE_WEAPONS) {
       this.ammo[id] = this.mag(id);
       this.reload[id] = 0;
     }
@@ -128,9 +129,11 @@ export class WeaponSystem {
     if (finite) this.ammo[id]--;
     const cfg = WEAPONS[id];
     this.cooldown = id === 'blaster' ? this.game.stats.fireCooldown : cfg.cooldown;
-    this.player.vm.kickRecoil(id === 'confetti' ? 2 : 1);
-    this.player.kick = Math.min(0.08, this.player.kick + (id === 'confetti' ? 0.05 : 0.012));
+    const kick = { confetti: [2, 0.05], minigun: [0.35, 0.004] }[id] ?? [1, 0.012];
+    this.player.vm.kickRecoil(kick[0]);
+    this.player.kick = Math.min(0.08, this.player.kick + kick[1]);
     if (id === 'blaster') this.fireBlaster();
+    else if (id === 'minigun') this.fireBlaster(WEAPONS.minigun);
     else if (id === 'net') this.fireNet();
     else if (id === 'confetti') this.fireConfetti();
     else if (id === 'rainbow') this.fireRainbow();
@@ -161,12 +164,19 @@ export class WeaponSystem {
     return ko;
   }
 
-  fireBlaster() {
+  // Hitscan foam shot. cfg (minigun): fixed damage, random spread, its own sound.
+  fireBlaster(cfg = null) {
     const game = this.game;
     const P = this.player;
-    Audio.play('shoot');
-    this.aimRay();
-    this.raycaster.far = 60;
+    Audio.play(cfg ? 'minigun' : 'shoot');
+    const ray = this.aimRay();
+    if (cfg) {
+      ray.direction.x += (Math.random() - 0.5) * 2 * cfg.spread;
+      ray.direction.y += (Math.random() - 0.5) * 2 * cfg.spread;
+      ray.direction.z += (Math.random() - 0.5) * 2 * cfg.spread;
+      ray.direction.normalize();
+    }
+    this.raycaster.far = cfg ? cfg.range : 60;
     const wall = P.worldHitDistance(this.raycaster);
     const hits = this.raycaster.intersectObjects(game.plushies.hitTargets(), true);
     const from = P.vm.muzzle.getWorldPosition(_v);
@@ -176,7 +186,7 @@ export class WeaponSystem {
     if (hit) {
       const p = P.plushieFromObject(hit.object);
       end = hit.point;
-      if (p) this.applyHit(p, p.takeHit(game.stats.damage, P.pos), hit.point);
+      if (p) this.applyHit(p, p.takeHit(cfg ? cfg.damage : game.stats.damage, P.pos), hit.point);
     } else {
       end = this.raycaster.ray.at(Math.min(wall, 60), _v2);
       if (wall < 60) game.particles.burst(end, { count: 4, color: 0xffffff, speed: 1.2, size: 0.04, life: 0.4 });

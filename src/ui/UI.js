@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { t, applyI18n, lang } from '../i18n.js';
 import {
-  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS, BELT_PRICE,
+  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, AD_NUGGETS, BELT_PRICE, BELT_PACK, adCashReward,
   upgradeCost, placeableCost, levelThreshold, MAX_LEVEL,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
@@ -235,24 +235,32 @@ export class UI {
     this.show('hud-ammo', !B.active);
     if (B.active) {
       const inv = D.inventory;
+      // slot 0 = free hand, then everything in the bag
+      const hand = `<div class="slot${!B.type ? ' active' : ''}">✋</div>`;
       this.set(
         'build-items',
-        B.tools
-          .map((id, i) => {
-            const icon = id === 'belt' ? '➡️' : PLACEABLES.find((x) => x.id === id).icon;
-            const count = id === 'belt' ? `${this.money(BELT_PRICE)}/m` : inv[id];
-            return `<div class="slot${id === B.type ? ' active' : ''}"><small>${i + 1}</small>${icon}<b>${count}</b></div>`;
-          })
-          .join(''),
+        hand +
+          B.tools
+            .map((id, i) => {
+              const icon = id === 'belt' ? '➡️' : PLACEABLES.find((x) => x.id === id).icon;
+              const count = id === 'belt' ? `${inv.belt}m` : inv[id];
+              return `<div class="slot${id === B.type ? ' active' : ''}"><small>${i + 1}</small>${icon}<b>${count}</b></div>`;
+            })
+            .join(''),
       );
+      const sellFor = (type) => {
+        const v = g.resaleValue(type);
+        return v.cash ? this.money(v.cash) : `💎 ${v.nuggets}`;
+      };
       let hint;
-      if (B.type === 'belt') {
-        const len = B.path.length;
-        hint = `<b>${t('pl_belt')}</b> · ` + (B.beltStart
-          ? t('beltHintEnd', { n: len, c: this.money(B.pathCost) }) + (B.valid ? '' : ` · <span class="bad">${t(D.cash < B.pathCost ? 'beltNoCash' : 'beltBlocked')}</span>`)
+      if (!B.type) hint = t(g.isTouch ? 'handHintTouch' : 'handHint');
+      else if (B.type === 'belt') {
+        hint = `<b>${t('pl_belt')} (${inv.belt} m)</b> · ` + (B.beltStart
+          ? t('beltHintEnd', { n: B.path.length, c: B.pathNew }) + (B.valid ? '' : ` · <span class="bad">${t(B.pathNew > (inv.belt || 0) ? 'beltNoMetres' : 'beltBlocked')}</span>`)
           : t(g.isTouch ? 'beltHintStartTouch' : 'beltHintStart'));
-      } else hint = (B.type ? `<b>${t('pl_' + B.type)}</b> · ` : '') + t(g.isTouch ? 'buildHintTouch' : 'buildHint');
+      } else hint = `<b>${t('pl_' + B.type)}</b> · ` + t(g.isTouch ? 'buildHintTouch' : 'buildHint', { v: sellFor(B.type) });
       this.set('build-hint', hint);
+      this.buildSellFor = sellFor;
     } else {
       const W = p.weapons;
       const cur = W.current;
@@ -271,7 +279,10 @@ export class UI {
 
     const touch = g.isTouch;
     let prompt = '';
-    if (B.active) prompt = B.hovered || B.hoveredTile ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
+    if (B.active) {
+      const target = B.hovered?.type ?? (B.hoveredTile ? 'belt' : null);
+      if (target) prompt = t('moveSellHint', { e: touch ? '✋' : '[E]', x: touch ? '💲' : '[X]', v: this.buildSellFor(target), name: t('pl_' + target) });
+    }
     else if (p.aimed) {
       const gem = p.aimed.kind === 'can' && p.aimed.revealed && p.aimed.nugget ? ' 💎' : '';
       const name = (p.aimed.kind === 'can' ? t('canName') : t('p_' + p.aimed.type)) + gem;
@@ -413,19 +424,15 @@ export class UI {
       const legendary = this.tab === 'legendary';
       note(legendary ? 'legendaryNote' : 'machinesNote');
       if (!legendary) {
-        // belts are sold by the metre: this card jumps straight into laying a belt road
+        // belts: bought by the metre in packs, into the bag like every other machine
         card({
-          disabled: false,
+          disabled: D.cash < BELT_PRICE * BELT_PACK,
           html: `
-            <div class="name">➡️ ${t('pl_belt')}</div>
+            <div class="name">➡️ ${t('pl_belt')} ×${BELT_PACK} m</div>
             <div class="desc">${t('pd_belt')}</div>
-            <div class="row"><span>${t('beltLaid', { n: g.beltNet.list.filter((x) => !x.fixed).length })}</span>
-            <span class="cost">${this.money(BELT_PRICE)}/m</span></div>`,
-          onClick: () => {
-            g.closeShop();
-            g.build.enter('belt');
-            return false;
-          },
+            <div class="row"><span>${t('beltBag', { n: D.inventory.belt || 0, l: g.beltNet.list.filter((x) => !x.fixed).length })}</span>
+            <span class="cost">${this.money(BELT_PRICE * BELT_PACK)}</span></div>`,
+          onClick: () => g.buyBelts(),
         });
       }
       for (const def of PLACEABLES.filter((x) => !!x.legendary === legendary)) {
@@ -495,21 +502,28 @@ export class UI {
         });
       }
     } else {
-      // Bonus: rewarded ads only — each video pays a gold nugget
+      // Bonus: rewarded ads only — a nugget, or cash scaled to the factory level
       note(Platform.canRewarded ? 'bonusNote' : 'bonusUnavailable');
-      card({
-        disabled: !Platform.canRewarded,
-        cls: ['ad-offer'],
-        html: `
-          <div class="name">💎 ${t('ad_nugget', { n: AD_NUGGETS })}</div>
-          <div class="desc">${t('adD_nugget')}</div>
-          <div class="row"><span></span><span class="cost">📺 ${t('watchAd')}</span></div>`,
-        onClick: async () => {
-          const ok = await g.watchAd();
-          if (ok) this.toast('adThanks');
-          return true;
-        },
-      });
+      const offers = [
+        { kind: 'nugget', title: `💎 ${t('ad_nugget', { n: AD_NUGGETS })}`, desc: t('adD_nugget') },
+        { kind: 'cash', title: `💰 ${t('ad_cash', { v: this.money(adCashReward(g.level)) })}`, desc: t('adD_cash') },
+      ];
+      for (const o of offers) {
+        const wait = Math.ceil(g.adWait(o.kind));
+        card({
+          disabled: !Platform.canRewarded || wait > 0,
+          cls: ['ad-offer'],
+          html: `
+            <div class="name">${o.title}</div>
+            <div class="desc">${o.desc}</div>
+            <div class="row"><span></span><span class="cost">${wait > 0 ? t('adWait', { s: wait }) : '📺 ' + t('watchAd')}</span></div>`,
+          onClick: async () => {
+            const ok = await g.watchAd(o.kind);
+            if (ok) this.toast('adThanks');
+            return true;
+          },
+        });
+      }
     }
   }
 }

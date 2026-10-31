@@ -138,6 +138,7 @@ export const UPGRADES = [
 export const UNLOCKS = [
   { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
   { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
+  { id: 'minigun', cat: 'weapons', icon: '💨', cost: 1500 },
   { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
   { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
   { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
@@ -158,8 +159,11 @@ export const PLACEABLES = [
   { id: 'starTurret', icon: '🌟', nuggets: 12, size: [1.4, 1.4], legendary: true },
 ];
 
-// Belts are bought by the metre and laid as a path of 1 m tiles.
+// Belts are bought by the metre (in packs) into the bag and laid as a path of 1 m tiles.
 export const BELT_PRICE = 25;
+export const BELT_PACK = 10;
+// Selling something back (build mode, X) returns this share of what it cost.
+export const SELL_RATIO = 0.5;
 
 export function placeableCost(def, bought) {
   return def.nuggets ? def.nuggets : Math.round(def.cost * Math.pow(def.growth, bought));
@@ -168,19 +172,27 @@ export function placeableCost(def, bought) {
 // Legendary weapon bought with nuggets.
 export const LEGENDARY_WEAPONS = [{ id: 'rainbow', icon: '🌈', nuggets: 15 }];
 
-export const AD_NUGGETS = 1; // a rewarded video pays one gold nugget
+export const AD_NUGGETS = 1; // the nugget video pays one gold nugget
+export const AD_COOLDOWN = 180; // seconds between two videos of the same kind
+
+// The cash video pays about one upgrade's worth at the current factory level: 100 at level 1, ~2.7k at 10.
+export function adCashReward(level) {
+  return Math.max(100, Math.round((100 * levelValueMult(level) * (1 + (level - 1) * 0.4)) / 10) * 10);
+}
 
 // Weapon tuning. The blaster's numbers come from upgrades (see computeStats).
 export const WEAPONS = {
   blaster: { slot: 1, icon: '🫧' },
+  // Foam minigun: hold to spray; weak, slightly inaccurate shots at a very high rate.
+  minigun: { slot: 2, icon: '💨', mag: 40, reload: 2.2, cooldown: 0.075, damage: 1, spread: 0.035, range: 45 },
   // Net: slow arcing projectile, instantly knocks out whatever it lands on (armour included).
-  net: { slot: 2, icon: '🕸️', mag: 3, reload: 2.4, cooldown: 0.75, speed: 20, radius: 1.1, koTime: 14 },
+  net: { slot: 3, icon: '🕸️', mag: 3, reload: 2.4, cooldown: 0.75, speed: 20, radius: 1.1, koTime: 14 },
   // Confetti cannon: short-range cone that damages every plushie in it.
-  confetti: { slot: 3, icon: '🎉', mag: 2, reload: 2.2, cooldown: 0.9, range: 7.5, cone: 0.42, damage: 2 },
+  confetti: { slot: 4, icon: '🎉', mag: 2, reload: 2.2, cooldown: 0.9, range: 7.5, cone: 0.42, damage: 2 },
   // Vacuum: hold to pull knocked-out plushies into your arms.
-  vacuum: { slot: 4, icon: '🌀', range: 9, cone: 0.5, pull: 7, grabDist: 1.3 },
+  vacuum: { slot: 5, icon: '🌀', range: 9, cone: 0.5, pull: 7, grabDist: 1.3 },
   // Legendary rainbow ray: rapid beam that knocks out anything in one hit, armour included.
-  rainbow: { slot: 5, icon: '🌈', cooldown: 0.12, range: 40 },
+  rainbow: { slot: 6, icon: '🌈', cooldown: 0.12, range: 40 },
 };
 
 // Cosmetics. slot 'decor' items toggle independently; the others are equipped one at a time.

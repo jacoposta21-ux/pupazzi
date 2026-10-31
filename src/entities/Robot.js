@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { Audio } from '../systems/Audio.js';
 
 const RADIUS = 0.4;
-const PICK_DIST = 0.75;
+const PICK_DIST = 1.0; // close enough to grab, even when the plushie lies against an obstacle
 const CHAIN_RANGE = 7; // a multi-carry bot grabs more plushies only if they are this close
 const _d = new THREE.Vector3();
 
@@ -33,8 +33,6 @@ export class Robot {
     this.cargo = [];
     this.timer = 0;
     this.heading = 0;
-    this.stuck = 0;
-    this.sidestep = 0;
     this.home = home.clone();
     this.mesh = this.build();
     this.pos = this.mesh.position;
@@ -76,10 +74,13 @@ export class Robot {
   }
 
   findTarget(range = Infinity) {
+    const now = performance.now();
     let best = null;
     let bestD = range * range;
     for (const p of this.game.plushies.list) {
       if (p.state !== 'ko' || p.claimedBy) continue;
+      if (p.pos.y > 0.3) continue; // riding a belt or lying on top of something: out of reach
+      if (p.robotSkipUntil > now) continue; // recently found unreachable
       // plushies already within reach of a working robot arm are the arm's job
       if (this.game.machines.some((m) => m.type === 'arm' && Math.hypot(m.pos.x - p.pos.x, m.pos.z - p.pos.z) < 2.6 && m.stuffer)) continue;
       const d = p.pos.distanceToSquared(this.pos);
@@ -91,27 +92,34 @@ export class Robot {
     return best;
   }
 
-  // Nearest place to unload: a Stuffer with room, or a Catapult pad.
+  // Nearest reachable place to unload: a free side of a Stuffer with room, or next to a robot arm.
   pickDropoff() {
+    const nav = this.game.nav;
+    const now = performance.now();
+    this.badDrop ??= new Map();
     let best = null;
     let bestD = Infinity;
-    for (const s of this.game.stuffers) {
-      if (!s.enabled || !s.hasRoom()) continue;
-      const spot = s.dropSpot;
+    const consider = (kind, target, spot) => {
+      if (!nav.isFree(spot) || (this.badDrop.get(target) ?? 0) > now) return;
       const d = spot.distanceTo(this.pos);
       if (d < bestD) {
         bestD = d;
-        best = { kind: 'stuffer', target: s, spot };
+        best = { kind, target, spot };
+      }
+    };
+    for (const s of this.game.stuffers) {
+      if (!s.enabled || !s.hasRoom()) continue;
+      // any side of the machine will do: robots drop plushies straight into the hopper
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        consider('stuffer', s, s.center.clone().add(new THREE.Vector3(dx * 2.3, 0, dz * 2.3)));
       }
     }
     // a robot arm next to a Stuffer: drop the plushies at its feet and let it do the rest
     for (const c of this.game.machines) {
       if (c.type !== 'arm' || !c.stuffer) continue;
-      const spot = c.pos.clone().add(new THREE.Vector3(1.4, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(this.pos.x - c.pos.x, this.pos.z - c.pos.z) - Math.PI / 2));
-      const d = spot.distanceTo(this.pos);
-      if (d < bestD) {
-        bestD = d;
-        best = { kind: 'arm', target: c, spot };
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        consider('arm', c, c.pos.clone().add(new THREE.Vector3(Math.cos(a) * 1.5, 0, Math.sin(a) * 1.5)));
       }
     }
     this.dropoff = best;
@@ -122,33 +130,54 @@ export class Robot {
     this.target = null;
   }
 
+  // Walks to `goal` along an A* path on the nav grid, re-planning when the goal moves or progress stalls.
+  // Returns the remaining (horizontal) distance to the goal, or -1 if it can't be reached.
   moveTo(goal, speed, dt) {
-    _d.subVectors(goal, this.pos).setY(0);
-    const dist = _d.length();
+    const now = performance.now();
+    const flat = (p) => Math.hypot(p.x - this.pos.x, p.z - this.pos.z);
+    const dist = flat(goal);
     if (dist < 0.05) return dist;
-    _d.divideScalar(dist);
-    if (this.sidestep > 0) {
-      // slide sideways around whatever we bumped into
-      this.sidestep -= dt;
-      _d.set(-_d.z, 0, _d.x);
+    if (!this.path || !this.pathGoal || Math.hypot(this.pathGoal.x - goal.x, this.pathGoal.z - goal.z) > 0.6 || now > this.replanAt) {
+      this.path = this.game.nav.path(this.pos, goal);
+      this.pathGoal = goal.clone();
+      this.replanAt = now + 2500;
+      if (!this.path) return -1;
     }
+    // watchdog: no real progress for a while -> replan, then give up
+    if (!this.watch || dist < this.watch.d - 0.25) this.watch = { d: dist, t: now, fails: this.watch?.fails ?? 0 };
+    else if (now - this.watch.t > 2500) {
+      this.watch.fails++;
+      this.watch.t = now;
+      this.path = null;
+      if (this.watch.fails >= 3) {
+        this.watch = null;
+        return -1;
+      }
+    }
+    // follow waypoints, then go straight for the goal itself
+    while (this.path?.length && flat(this.path[0]) < 0.3) this.path.shift();
+    const wp = this.path?.length ? this.path[0] : goal;
+    _d.set(wp.x - this.pos.x, 0, wp.z - this.pos.z);
+    const wd = _d.length();
+    if (wd < 1e-4) return dist;
+    _d.divideScalar(wd);
     const want = Math.atan2(_d.x, _d.z);
     let diff = want - this.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    this.heading += diff * Math.min(1, dt * 8);
-    const step = Math.min(dist, speed * dt);
-    const before = this.pos.clone();
-    this.pos.x += Math.sin(this.heading) * step;
-    this.pos.z += Math.cos(this.heading) * step;
+    this.heading += diff * Math.min(1, dt * 10);
+    // slow down while turning sharply so it doesn't scrape along walls
+    const step = Math.min(wd, speed * dt * (Math.abs(diff) > 1 ? 0.4 : 1));
+    this.pos.x += _d.x * step;
+    this.pos.z += _d.z * step;
     this.game.colliders.resolve(this.pos, RADIUS, 0.35);
-    const moved = before.distanceTo(this.pos);
-    this.stuck = moved < step * 0.3 ? this.stuck + dt : 0;
-    if (this.stuck > 0.4) {
-      this.sidestep = 0.7;
-      this.stuck = 0;
-    }
     return dist;
+  }
+
+  // Resets path following (new task).
+  newTask() {
+    this.path = null;
+    this.watch = null;
   }
 
   pickUp(p) {
@@ -184,17 +213,20 @@ export class Robot {
 
     switch (this.state) {
       case 'seek': {
-        if (this.timer > 0) break;
-        this.timer = 0.3;
-        const p = this.findTarget();
-        if (p) {
-          this.target = p;
-          p.claimedBy = this;
-          this.state = 'fetch';
-          Audio.play('robot');
-        } else if (this.pos.distanceTo(this.home) > 0.3) {
-          this.moveTo(this.home, speed * 0.6, 0.3);
+        if (this.timer <= 0) {
+          this.timer = 0.3;
+          const p = this.findTarget();
+          if (p) {
+            this.target = p;
+            p.claimedBy = this;
+            this.state = 'fetch';
+            this.newTask();
+            Audio.play('robot');
+            break;
+          }
         }
+        // nothing to do: roll back to the dock
+        if (Math.hypot(this.home.x - this.pos.x, this.home.z - this.pos.z) > 0.3) this.moveTo(this.home, speed * 0.6, dt);
         break;
       }
       case 'fetch': {
@@ -205,11 +237,22 @@ export class Robot {
           if (this.cargo.length) this.pickDropoff();
           break;
         }
-        if (this.moveTo(p.pos, speed, dt) < PICK_DIST) {
+        const d = this.moveTo(p.pos, speed, dt);
+        if (d < 0) {
+          // can't get there (walled in, behind belts...): leave it for a while and do something else
+          p.robotSkipUntil = performance.now() + 8000;
+          this.release();
+          this.newTask();
+          this.state = this.cargo.length ? 'deliver' : 'seek';
+          if (this.cargo.length) this.pickDropoff();
+          break;
+        }
+        if (d < PICK_DIST) {
           this.target = null;
           this.pickUp(p);
           // multi-carry: grab another nearby one before leaving
           const next = this.cargo.length < this.capacity ? this.findTarget(CHAIN_RANGE) : null;
+          this.newTask();
           if (next) {
             this.target = next;
             next.claimedBy = this;
@@ -229,7 +272,15 @@ export class Robot {
           break;
         }
         const { kind, target, spot } = this.dropoff;
-        if (this.moveTo(spot, speed, dt) < (kind === 'arm' ? 0.6 : 0.35)) {
+        const d = this.moveTo(spot, speed, dt);
+        if (d < 0) {
+          // that drop-off can't be reached: avoid it for a bit and pick another one
+          this.badDrop.set(target, performance.now() + 6000);
+          this.newTask();
+          this.pickDropoff();
+          break;
+        }
+        if (d < 0.6) {
           if (this.timer > 0) break;
           this.timer = 0.4;
           if (kind === 'arm') {
@@ -244,6 +295,7 @@ export class Robot {
               this.cargo.pop();
             }
           }
+          this.newTask();
           if (this.cargo.length) this.pickDropoff(); // full or gone: try elsewhere
           else {
             this.state = 'seek';

@@ -168,9 +168,9 @@ export class Input {
   get jumpPressed() {
     return this.pressed.has('Space') || this.touchPressed.has('jump');
   }
-  // 1-4 when a number key was pressed this frame, else 0
+  // 1-9 when a number key was pressed this frame, else 0
   get weaponSlot() {
-    for (let i = 1; i <= 4; i++) if (this.pressed.has('Digit' + i) || this.pressed.has('Numpad' + i)) return i;
+    for (let i = 1; i <= 9; i++) if (this.pressed.has('Digit' + i) || this.pressed.has('Numpad' + i)) return i;
     return 0;
   }
   get wheel() {
@@ -181,6 +181,9 @@ export class Input {
   }
   get buildPressed() {
     return this.pressed.has('KeyB') || this.touchPressed.has('build');
+  }
+  get sellPressed() {
+    return this.pressed.has('KeyX') || this.touchPressed.has('sell');
   }
   get rotatePressed() {
     return this.pressed.has('KeyR') || this.touchPressed.has('reload');

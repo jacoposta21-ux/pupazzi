@@ -155,6 +155,21 @@ export class Viewmodel {
     this.prism = mesh(new THREE.OctahedronGeometry(0.035, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), g, v(0, 0.075, 0.02));
     mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
 
+    // Foam minigun: spinning six-barrel cluster with a drum magazine underneath
+    g = model('minigun', -0.34, 0.012);
+    mesh(new THREE.BoxGeometry(0.07, 0.08, 0.18), M.orange, g, v(0, 0, 0.03));
+    mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.05, 18), M.blue, g, v(0, -0.06, -0.02), null, [0, 0, Math.PI / 2]);
+    this.minigunBarrels = new THREE.Group();
+    this.minigunBarrels.position.set(0, 0.012, -0.2);
+    g.add(this.minigunBarrels);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.24, 8), M.blue, this.minigunBarrels, v(Math.cos(a) * 0.024, Math.sin(a) * 0.024, 0), null, [Math.PI / 2, 0, 0]);
+    }
+    for (const z of [-0.1, 0.06]) mesh(new THREE.TorusGeometry(0.03, 0.007, 6, 16), M.pink, this.minigunBarrels, v(0, 0, z));
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+    this.spin = 0;
+
     this.weapon = 'blaster';
     this.muzzle = this.muzzles.blaster;
 
@@ -241,6 +256,7 @@ export class Viewmodel {
 
   kickRecoil(strength = 1) {
     this.recoil = strength;
+    if (this.weapon === 'minigun') this.spin = 1;
   }
   playThrow() {
     this.throwT = 1;
@@ -279,6 +295,9 @@ export class Viewmodel {
     this.gun.rotation.set(r * 0.18 + this.reloadT * 0.5 - sw * 0.6, 0, this.reloadT * -0.5);
     this.netBall.visible = !!s.netLoaded;
     this.prism.rotation.y += dt * 3;
+    // minigun barrels spin up while firing and wind down after
+    this.spin = Math.max(0, this.spin - dt * 1.5);
+    this.minigunBarrels.rotation.z += dt * 40 * this.spin;
     this.prism.material.color.setHSL((this.time * 0.3) % 1, 0.8, 0.65);
     if (s.vacuumOn) {
       this.fan.rotation.z += dt * 40;

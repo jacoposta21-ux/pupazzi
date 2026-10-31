@@ -4,17 +4,20 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export class Colliders {
   constructor() {
     this.boxes = [];
+    this.version = 0; // bumped on every change, so the robots' nav grid knows when to rebuild
   }
 
   add(minX, maxX, minZ, maxZ, height = 99) {
     const box = { minX, maxX, minZ, maxZ, height };
     this.boxes.push(box);
+    this.version++;
     return box;
   }
 
   remove(box) {
     const i = this.boxes.indexOf(box);
     if (i >= 0) this.boxes.splice(i, 1);
+    this.version++;
   }
 
   // Pushes the circle out of every box taller than `stepY`. Returns true if anything was hit.

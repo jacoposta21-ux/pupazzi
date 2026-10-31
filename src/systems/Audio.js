@@ -133,6 +133,10 @@ const SFX = {
     [1046, 1318, 1568].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.12, vol: 0.06, delay: 0.05 + i * 0.05 }));
   },
   vacuum: () => noise({ dur: 0.16, vol: 0.09, freq: 1200, type: 'bandpass' }),
+  minigun() {
+    tone({ freq: 700 + Math.random() * 200, to: 260, type: 'square', dur: 0.05, vol: 0.06 });
+    noise({ dur: 0.04, vol: 0.08, freq: 3500, type: 'highpass' });
+  },
   place() {
     tone({ freq: 220, to: 110, type: 'triangle', dur: 0.2, vol: 0.2 });
     noise({ dur: 0.15, vol: 0.12, freq: 500 });

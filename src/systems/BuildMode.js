@@ -1,8 +1,9 @@
-// Build mode: place machines from the inventory anywhere on the factory floor, rotate them,
-// pick placed ones back up, and lay belt roads. A translucent ghost snaps to the grid in front of the player.
-// Belts: click the start, click the end; the path is an L with a curve (R flips which way it turns).
+// Build mode (B). You start with a free hand: aim at a placed machine or belt and press E to pick it
+// up and move it, or X to sell it back for half its price. Number keys / wheel pick something from the
+// bag to place: a translucent ghost snaps to the grid. Belts (bought by the metre, kept in the bag like
+// everything else) are laid as a road: click the start, click the end; the path is an L with a curve.
 import * as THREE from 'three';
-import { LAYOUT, BELT_PRICE } from '../data/config.js';
+import { LAYOUT } from '../data/config.js';
 import { buildGhost, footprint, dir } from '../entities/Machines.js';
 import { beltPath, dirIndex } from '../entities/Belts.js';
 import { Audio } from './Audio.js';
@@ -18,6 +19,8 @@ const KEEP_CLEAR = [
   { minX: LAYOUT.terminal.x - 1.5, maxX: LAYOUT.terminal.x + 1.5, minZ: LAYOUT.terminal.z - 1.5, maxZ: LAYOUT.terminal.z + 1.5 },
 ];
 const overlaps = (a, b) => a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
+// Stuffers, scanners, extractors (and belts) live on whole metres so they line up with each other.
+const METRE_GRID = ['stuffer', 'scanner', 'extractor'];
 
 // Pool of translucent tiles previewing a belt path.
 const tileGeo = new THREE.BoxGeometry(0.96, 0.2, 0.96);
@@ -29,31 +32,28 @@ export class BuildMode {
   constructor(game) {
     this.game = game;
     this.active = false;
-    this.type = null;
+    this.type = null; // null = free hand
     this.rot = 0;
     this.ghost = null;
     this.valid = false;
-    this.hovered = null; // placed machine under the crosshair (for pick-up)
+    this.hovered = null; // placed machine under the crosshair
+    this.hoveredTile = null; // belt tile under the crosshair
     this.raycaster = new THREE.Raycaster();
     this.pos = new THREE.Vector3();
     // belt tool
     this.beltStart = null;
     this.xFirst = true;
     this.path = [];
-    this.pathCost = 0;
+    this.pathNew = 0;
     this.pool = [];
     this.pathGroup = new THREE.Group();
     game.scene.add(this.pathGroup);
   }
 
-  get inventoryTypes() {
+  // What's in the bag (machines and belt metres), in a stable order: these are the build bar slots.
+  get tools() {
     const inv = this.game.data.inventory;
     return Object.keys(inv).filter((k) => inv[k] > 0);
-  }
-
-  // Tools on the build bar: belts (always, paid per metre) then the machines in the bag.
-  get tools() {
-    return ['belt', ...this.inventoryTypes];
   }
 
   toggle() {
@@ -61,10 +61,11 @@ export class BuildMode {
     else this.enter();
   }
 
-  enter(type) {
+  // type: something from the bag to hold right away; default is the free hand.
+  enter(type = null) {
     this.active = true;
     this.game.player.setViewmodelVisible(false);
-    this.select(type ?? this.inventoryTypes[0] ?? 'belt');
+    this.select(type && this.game.data.inventory[type] > 0 ? type : null);
     Audio.play('swap');
   }
 
@@ -72,6 +73,7 @@ export class BuildMode {
     this.active = false;
     this.setGhost(null);
     this.highlight(null);
+    this.hoveredTile = null;
     this.beltStart = null;
     this.showPath([]);
     this.game.player.setViewmodelVisible(true);
@@ -81,7 +83,7 @@ export class BuildMode {
     this.type = type;
     this.beltStart = null;
     this.showPath([]);
-    this.setGhost(type === 'belt' ? null : type);
+    this.setGhost(type && type !== 'belt' ? type : null);
   }
 
   setGhost(type) {
@@ -90,9 +92,10 @@ export class BuildMode {
     if (this.ghost) this.game.scene.add(this.ghost);
   }
 
+  // Cycles free hand -> bag items -> free hand.
   cycle(d) {
-    const list = this.tools;
-    const i = list.indexOf(this.type);
+    const list = [null, ...this.tools];
+    const i = Math.max(0, list.indexOf(this.type));
     this.select(list[(i + d + list.length) % list.length]);
   }
 
@@ -213,10 +216,10 @@ export class BuildMode {
       c.ok = this.checkCell(c.x, c.z);
       ok &&= c.ok;
     }
-    const fresh = cells.filter((c) => !game.beltNet.at(c.x, c.z)).length;
     this.path = cells;
-    this.pathCost = fresh * BELT_PRICE;
-    this.valid = ok && game.data.cash >= this.pathCost;
+    this.pathNew = cells.filter((c) => !game.beltNet.at(c.x, c.z)).length;
+    // new tiles come out of the belt metres in the bag
+    this.valid = ok && this.pathNew <= (game.data.inventory.belt || 0);
     this.showPath(cells, this.valid || !this.beltStart);
 
     if (input.throwPressed && this.beltStart) {
@@ -247,33 +250,47 @@ export class BuildMode {
     }
 
     this.raycaster.setFromCamera(CENTER, game.camera);
-    // aiming at a placed machine or a belt tile? (pick-up target)
-    const groups = game.machines.map((m) => m.group);
-    const tiles = game.beltNet.list.filter((t) => !t.fixed).map((t) => t.group);
-    const hit = this.raycaster.intersectObjects([...groups, ...tiles], true)[0];
+    // aiming at a placed machine or a belt tile? (move / sell target)
     let machine = null;
     let tile = null;
-    if (hit && hit.distance < REACH) {
-      let o = hit.object;
-      while (o && !o.userData.machine && !o.userData.tile) o = o.parent;
-      machine = o?.userData.machine ?? null;
-      tile = o?.userData.tile ?? null;
+    if (!this.type) {
+      const groups = game.machines.map((m) => m.group);
+      const tiles = game.beltNet.list.filter((t) => !t.fixed).map((t) => t.group);
+      const hit = this.raycaster.intersectObjects([...groups, ...tiles], true)[0];
+      if (hit && hit.distance < REACH) {
+        let o = hit.object;
+        while (o && !o.userData.machine && !o.userData.tile) o = o.parent;
+        machine = o?.userData.machine ?? null;
+        tile = o?.userData.tile ?? null;
+      }
     }
-    this.highlight(this.type && this.type !== 'belt' ? null : machine);
+    this.highlight(machine);
     this.hoveredTile = tile;
-    if (input.grabPressed && (machine || tile)) {
-      if (machine) {
+
+    if (!this.type) {
+      // free hand: E moves, X sells
+      if (input.grabPressed && machine) {
         game.pickUpMachine(machine);
-        if (this.type === 'belt') this.select(machine.type);
-      } else game.pickUpBelt(tile);
+        this.highlight(null);
+        this.select(machine.type); // holding it now: place it somewhere else
+      } else if (input.grabPressed && tile) game.pickUpBelt(tile);
+      else if (input.sellPressed && machine) {
+        this.highlight(null);
+        game.sellMachine(machine);
+      } else if (input.sellPressed && tile) game.sellBelt(tile);
       return;
     }
 
+    // holding something from the bag: X sells one of it
+    if (input.sellPressed) {
+      game.sellFromBag(this.type);
+      if (!game.data.inventory[this.type]) this.select(null);
+      return;
+    }
     if (this.type === 'belt') return this.updateBelt(input);
-    if (!this.type || !this.ghost) return;
+    if (!this.ghost) return;
     const p = this.aimPoint();
-    // Stuffers, scanners and extractors snap to whole metres so they line up with belt tiles
-    const grid = ['stuffer', 'scanner', 'extractor'].includes(this.type) ? 1 : GRID;
+    const grid = METRE_GRID.includes(this.type) ? 1 : GRID;
     p.x = Math.round(p.x / grid) * grid;
     p.z = Math.round(p.z / grid) * grid;
     this.valid = this.check(this.type, p.x, p.z, this.rot);
