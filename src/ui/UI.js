@@ -376,7 +376,9 @@ export class UI {
       if (!disabled && !cls.length) btn.classList.add('affordable');
       btn.innerHTML = html;
       btn.addEventListener('click', async () => {
-        if (await onClick()) this.renderShop();
+        const ok = await onClick();
+        if (import.meta.env.VITE_CHEATS === '1') this.game.topUpCheats();
+        if (ok) this.renderShop();
       });
       shop.appendChild(btn);
     };

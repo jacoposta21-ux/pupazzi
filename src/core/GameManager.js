@@ -26,6 +26,10 @@ import { UI } from '../ui/UI.js';
 import { Decor } from '../world/Decor.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
+// Test builds only (npm run build:cheats): bottomless cash and nuggets to try everything quickly.
+const CHEATS = import.meta.env.VITE_CHEATS === '1';
+const CHEAT_CASH = 1e12;
+const CHEAT_NUGGETS = 9999;
 const AUTOSAVE_EVERY = 15;
 const SHUTTER_SPEED = 6;
 
@@ -445,7 +449,14 @@ export class GameManager {
     this.startPlaying();
   }
 
+  // Keeps cash and nuggets topped up without touching lifetime earnings (level / goal stay honest).
+  topUpCheats() {
+    if (this.data.cash < CHEAT_CASH / 2) this.data.cash = CHEAT_CASH;
+    if (this.data.nuggets < CHEAT_NUGGETS / 2) this.data.nuggets = CHEAT_NUGGETS;
+  }
+
   startPlaying() {
+    if (CHEATS) this.topUpCheats();
     this.refreshStats();
     this.level = levelFromEarned(this.data.earned);
     this.nextTruck = 3;
@@ -471,6 +482,7 @@ export class GameManager {
 
   openShop() {
     if (this.shopOpen) return;
+    if (CHEATS) this.topUpCheats();
     this.shopOpen = true;
     this.paused = true;
     this.input.exitLock();
@@ -662,6 +674,7 @@ export class GameManager {
     });
     this.updateShutter(dt);
 
+    if (CHEATS) this.topUpCheats();
     this.autosave -= dt;
     if (this.autosave <= 0) {
       this.autosave = AUTOSAVE_EVERY;

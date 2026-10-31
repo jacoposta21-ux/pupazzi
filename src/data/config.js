@@ -1,6 +1,7 @@
 // All tuning numbers live here so balancing never requires touching gameplay code.
 
-export const SAVE_KEY = 'stuffed_save_v1';
+// test builds keep their own save so they never touch a real one
+export const SAVE_KEY = import.meta.env.VITE_CHEATS === '1' ? 'stuffed_save_cheats' : 'stuffed_save_v1';
 export const SETTINGS_KEY = 'stuffed_settings_v1';
 
 // Graphics presets. pixelRatio is capped by the device ratio.
