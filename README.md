@@ -4,17 +4,22 @@ Gioco gestionale incrementale in prima persona, ambientato in una fabbrica di pu
 
 Dai camion scendono i pupazzi, che scappano dal giocatore. Il giocatore li stordisce con il blaster a schiuma, li afferra e li lancia nell'**Imbottitrice**. Le lattine prodotte viaggiano sul nastro fino alla spedizione e fanno guadagnare soldi. Ogni giornata ha un tempo limite e una quota da raggiungere. A fine giornata si comprano potenziamenti.
 
-## Contenuti
+## Come funziona
 
-- **Tutorial guidato** il primo giorno: banner + freccia 3D; il tempo parte solo dopo il primo lancio.
-- **Pupazzi**: Orsetto, Coniglietto, Gattino, Orsetto d'Oro (raro), Cagnolino Cavaliere (l'elmo assorbe i primi colpi), Orsa Matrioska (stordita si divide in 3 mini-orsetti).
-- **Automazione**: i Fluffbot raccolgono da soli i pupazzi storditi e li portano all'Imbottitrice.
-- **Ampliamenti** (acquisto singolo): seconda linea di produzione nell'ala est, Incartatrice (+50% di valore sulle lattine), Tramoggia grande (coda da 6).
-- **Armi** (tasti 1-4, rotella o Q): blaster a schiuma, Lanciareti (KO istantaneo ad area, anche sui corazzati), Cannone a coriandoli (cono a corto raggio), Aspirapupazzi (risucchia in mano i pupazzi storditi).
-- **Stile**: guanti, colori delle armi, colore delle Imbottitrici e decorazioni della fabbrica (festoni, piante, statua dell'Orsetto d'Oro).
-- **Visuale in prima persona**: mani con guanti che reggono il blaster e la pila di pupazzi, oscillazione dell'arma, rinculo, FOV dinamico in corsa, passi e atterraggio.
-- **Musica** procedurale e impostazioni separate per audio, musica e qualità grafica (bassa / media / alta, con abbassamento automatico se il gioco va a scatti).
-- Font Fredoka incluso nel pacchetto (nessuna richiesta esterna oltre all'SDK).
+Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I camion consegnano pupazzi senza sosta e una **saracinesca** si apre a ogni consegna. L'obiettivo finale è guadagnare **$1.000.000**: al traguardo compare la schermata di vittoria e poi si può continuare.
+
+- **Livello della fabbrica**: sale con i guadagni totali (soglie in `src/data/config.js`). Porta nuovi pupazzi, camion più grandi e lattine più preziose.
+- **Missioni a tempo** facoltative, una alla volta, per esempio "Imbottisci 8 pupazzi in 75 s": danno soldi e a volte una pepita.
+- **Terminale** fisico in fabbrica (E): negozio diviso in Potenziamenti, Macchine, Fabbrica e armi, Leggendari, Stile e Bonus.
+- **Piazzamento libero** (B): le macchine comprate finiscono nella borsa. Si piazzano su una griglia da 0,5 m con anteprima verde o rossa, si ruotano con R e si raccolgono con E.
+  - Base Fluffbot: il suo robot raccoglie i pupazzi storditi e li consegna.
+  - Sparabot: torretta che spara ai pupazzi vicini.
+  - Catapulta: lancia nella tramoggia i pupazzi storditi che finiscono sulla sua pedana.
+  - Esca Lecca-lecca: attira i pupazzi che vagano.
+  - Linea di produzione: Imbottitrice con nastro e cassa di spedizione.
+- **Pepite d'oro** nascoste in alcuni pupazzi. Escono quando afferri il pupazzo a mano (non con i robot). Per vederle servono lo **scanner a raggi X** (tasto X) oppure un video bonus. Si spendono per gli oggetti **leggendari**: Mega Fluffbot, Sparabot Stellare e Raggio Arcobaleno.
+- **Armi** (tasti 1-5): blaster, Lanciareti, Cannone a coriandoli, Aspirapupazzi, Raggio Arcobaleno.
+- **Annunci**: solo video facoltativi con premio nella scheda Bonus del terminale (raggi X per 90 s, camion d'oro, bonus in contanti). Non ci sono annunci forzati.
 
 ## Sviluppo
 
@@ -31,14 +36,14 @@ npm run build    # output in dist/
 3. Carica lo zip dal portale sviluppatori di CrazyGames.
 
 L'SDK v3 di CrazyGames viene caricato a runtime da `src/systems/Platform.js` e gestisce:
-`loadingStart/Stop`, `gameplayStart/Stop`, `happytime` (quota raggiunta), annuncio `midgame` tra una giornata e l'altra (dal giorno 3), annuncio `rewarded` (raddoppia le lattine del giorno, nascosto se c'è un adblock) e i salvataggi in cloud tramite `SDK.data`.
+`loadingStart/Stop`, `gameplayStart/Stop`, `happytime` (missione completata, vittoria), annunci `rewarded` facoltativi (nascosti se c'è un adblock) e i salvataggi in cloud tramite `SDK.data`.
 Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in `localStorage`.
 
 ## Architettura
 
 | File | Ruolo |
 | --- | --- |
-| `src/core/GameManager.js` | Macchina a stati (menu, giornata, fine giornata), timer, camion, economia, salvataggi |
+| `src/core/GameManager.js` | Stato (menu / gioco), consegne continue, economia, livello, terminale, salvataggi |
 | `src/core/EventBus.js` | Comunicazione tra sistemi (`canSold`, `plushieStuffed`, `plushieKO`, `truckArrived`) |
 | `src/data/config.js` | **Tutti i parametri di bilanciamento**: pupazzi, giornate, quota, potenziamenti, sblocchi, armi, cosmetici |
 | `src/entities/Player.js` | Movimento FPS, blaster, presa, lancio con mira assistita verso la tramoggia |
@@ -50,7 +55,10 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 | `src/entities/Viewmodel.js` | Mani, armi e pupazzi in mano in prima persona |
 | `src/entities/Weapons.js` | Logica delle 4 armi (colpi, rete, cono di coriandoli, aspirazione) |
 | `src/world/Decor.js` | Decorazioni acquistabili della fabbrica |
-| `src/systems/Tutorial.js` | Tutorial guidato del primo giorno |
+| `src/systems/Tutorial.js` | Tutorial guidato (fino al terminale) |
+| `src/systems/Missions.js` | Missioni a tempo |
+| `src/systems/BuildMode.js` | Modalità costruzione: anteprima, griglia, rotazione, raccolta |
+| `src/entities/Machines.js` | Macchine piazzabili (basi, torrette, catapulte, esche, linee, leggendari) |
 | `src/systems/` | Input (mouse/tastiera + touch), audio procedurale, wrapper della piattaforma |
 | `src/ui/UI.js` | HUD, menu, negozio, numeri fluttuanti |
 

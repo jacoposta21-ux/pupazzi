@@ -8,33 +8,46 @@
   <body>
     <div id="app">
       <canvas id="game"></canvas>
+      <div id="xray-overlay" class="hidden"></div>
       <div id="floaters"></div>
 
       <!-- In-game HUD -->
       <div id="hud" class="hidden">
         <div class="hud-top-left">
-          <div class="pill cash" id="hud-cash-pill">💰 <span id="hud-cash">$0</span></div>
-          <div class="pill"><span id="hud-day"></span></div>
-          <div class="quota">
-            <div class="quota-label" id="hud-quota-label"></div>
-            <div class="bar"><div id="hud-quota-fill"></div></div>
+          <div class="pill-row">
+            <div class="pill cash" id="hud-cash-pill">💰 <span id="hud-cash">$0</span></div>
+            <div class="pill nugget" id="hud-nuggets">💎 0</div>
+          </div>
+          <div class="level-box">
+            <div class="level-label" id="hud-level"></div>
+            <div class="bar"><div id="hud-level-fill"></div></div>
+            <div class="goal-label" id="hud-goal"></div>
           </div>
         </div>
         <div class="hud-top-center">
-          <div id="hud-timer" class="timer">0:00</div>
-          <div id="hud-truck" class="sub"></div>
+          <div id="hud-truck" class="truck-status"></div>
+          <div id="hud-xray" class="sub hidden"></div>
         </div>
         <div class="hud-top-right">
           <div class="pill" id="hud-machine"></div>
           <button id="btn-touch-pause" class="pill touch-only">II</button>
+          <div id="mission" class="hidden">
+            <div class="mission-title" id="mission-title"></div>
+            <div class="bar"><div id="mission-fill"></div></div>
+            <div class="mission-meta"><span id="mission-progress"></span><span id="mission-time"></span></div>
+          </div>
         </div>
         <div id="crosshair"><div class="dot"></div></div>
         <div id="hitmarker"></div>
         <div id="prompt"></div>
-        <div id="tutorial" class="hidden"><div id="tutorial-text"></div><div id="tutorial-sub" class="sub"></div></div>
+        <div id="tutorial" class="hidden"><div id="tutorial-text"></div></div>
         <div class="hud-bottom-left"><div class="pill" id="hud-carry"></div></div>
         <div class="hud-bottom-right"><div class="ammo" id="hud-ammo"></div></div>
         <div id="weapon-bar"></div>
+        <div id="build-bar" class="hidden">
+          <div id="build-items"></div>
+          <div id="build-hint" class="sub"></div>
+        </div>
         <div id="toast"></div>
       </div>
 
@@ -49,6 +62,8 @@
           <button class="tbtn" data-btn="jump">⤒</button>
           <button class="tbtn" data-btn="reload">⟳</button>
           <button class="tbtn" data-btn="swap">🔁</button>
+          <button class="tbtn" data-btn="build">🔨</button>
+          <button class="tbtn" data-btn="xray">🩻</button>
         </div>
       </div>
 
@@ -61,7 +76,7 @@
             <button id="btn-continue" class="btn primary hidden"></button>
             <button id="btn-new" class="btn" data-i18n="newGame"></button>
           </div>
-          <p id="menu-best" class="best hidden"></p>
+          <p id="menu-progress" class="best hidden"></p>
           <div class="settings-row">
             <button class="btn small set-sound"></button>
             <button class="btn small set-music"></button>
@@ -73,6 +88,7 @@
             <p data-i18n="ctrlShoot" class="desktop-only"></p>
             <p data-i18n="ctrlGrab" class="desktop-only"></p>
             <p data-i18n="ctrlWeapons" class="desktop-only"></p>
+            <p data-i18n="ctrlBuild" class="desktop-only"></p>
             <p data-i18n="ctrlTouch" class="touch-only"></p>
             <p data-i18n="ctrlGoal" class="goal"></p>
           </div>
@@ -97,23 +113,36 @@
         </div>
       </div>
 
-      <!-- End of day + shop -->
-      <div id="dayend" class="screen hidden">
+      <!-- Shop terminal -->
+      <div id="shop-screen" class="screen hidden">
         <div class="panel wide">
-          <h2 id="de-title"></h2>
-          <div class="summary" id="de-summary"></div>
-          <div id="de-quota" class="quota-result"></div>
-          <div class="de-actions">
-            <button id="btn-double" class="btn ad hidden" data-i18n="doubleAd"></button>
-            <div class="pill cash big">💰 <span id="de-cash"></span></div>
+          <div class="shop-head">
+            <h2 data-i18n="terminalTitle"></h2>
+            <div class="pill-row">
+              <div class="pill cash big">💰 <span id="shop-cash"></span></div>
+              <div class="pill nugget big">💎 <span id="shop-nuggets"></span></div>
+            </div>
           </div>
           <div class="tabs">
             <button class="tab active" data-tab="upgrades" data-i18n="tabUpgrades"></button>
+            <button class="tab" data-tab="machines" data-i18n="tabMachines"></button>
             <button class="tab" data-tab="unlocks" data-i18n="tabUnlocks"></button>
+            <button class="tab" data-tab="legendary" data-i18n="tabLegendary"></button>
             <button class="tab" data-tab="style" data-i18n="tabStyle"></button>
+            <button class="tab" data-tab="bonus" data-i18n="tabBonus"></button>
           </div>
           <div id="shop"></div>
-          <button id="btn-next" class="btn primary"></button>
+          <button id="btn-close-shop" class="btn primary" data-i18n="closeShop"></button>
+        </div>
+      </div>
+
+      <!-- Victory -->
+      <div id="victory" class="screen hidden">
+        <div class="panel">
+          <div class="victory-emoji">🏆</div>
+          <h2 data-i18n="victoryTitle"></h2>
+          <p id="victory-text"></p>
+          <button id="btn-victory" class="btn primary" data-i18n="victoryContinue"></button>
         </div>
       </div>
 

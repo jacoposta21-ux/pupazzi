@@ -25,8 +25,9 @@ function mats() {
 }
 
 export class Truck {
-  constructor(game, count, onSpawn) {
+  constructor(game, count, onSpawn, { golden = false } = {}) {
     this.game = game;
+    this.golden = golden;
     this.remaining = count;
     this.onSpawn = onSpawn;
     this.state = 'arriving';
@@ -48,7 +49,8 @@ export class Truck {
       g.add(mesh);
       return mesh;
     };
-    add(new THREE.BoxGeometry(7, 3, 2.6), m.box, 0, 2.1, 0);
+    const box = this.golden ? new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.6, roughness: 0.3 }) : m.box;
+    add(new THREE.BoxGeometry(7, 3, 2.6), box, 0, 2.1, 0);
     const side = add(new THREE.PlaneGeometry(6.6, 1), m.side, 0, 2.9, -1.31);
     side.rotation.y = Math.PI;
     add(new THREE.BoxGeometry(2.2, 2.4, 2.5), m.cab, 4.7, 1.8, 0);
@@ -81,7 +83,7 @@ export class Truck {
           this.remaining--;
           this.timer = UNLOAD_INTERVAL;
           const from = new THREE.Vector3(p.x + (Math.random() - 0.5) * 2, 1.2, LAYOUT.truckLaneZ - 1.6);
-          this.onSpawn(from);
+          this.onSpawn(from, this.golden);
         } else {
           this.state = 'leaving';
           this.speed = 0;

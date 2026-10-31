@@ -12,6 +12,11 @@ export class Colliders {
     return box;
   }
 
+  remove(box) {
+    const i = this.boxes.indexOf(box);
+    if (i >= 0) this.boxes.splice(i, 1);
+  }
+
   // Pushes the circle out of every box taller than `stepY`. Returns true if anything was hit.
   resolve(pos, r, stepY = 0) {
     let hit = false;

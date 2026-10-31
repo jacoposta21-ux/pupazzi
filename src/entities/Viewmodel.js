@@ -144,6 +144,17 @@ export class Viewmodel {
     mesh(new THREE.TorusGeometry(0.026, 0.005, 6, 16), M.blue, g, v(0, 0.005, 0.112));
     mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
 
+    // Legendary rainbow ray: sleek white body with rainbow rings and a glowing prism
+    g = model('rainbow', -0.3, 0.01);
+    const pearl = new THREE.MeshStandardMaterial({ color: 0xf6f1f6, roughness: 0.2, metalness: 0.3 });
+    mesh(new THREE.BoxGeometry(0.06, 0.075, 0.2), pearl, g, v(0, 0, 0.02));
+    mesh(new THREE.CylinderGeometry(0.018, 0.026, 0.2, 14), pearl, g, v(0, 0.01, -0.17), null, [Math.PI / 2, 0, 0]);
+    [0xff4d6d, 0xff9f1c, 0xffd23f, 0x5fe0b7, 0x3f8efc, 0x9b5de5].forEach((c, i) => {
+      mesh(new THREE.TorusGeometry(0.03, 0.006, 6, 16), new THREE.MeshBasicMaterial({ color: c }), g, v(0, 0.01, -0.09 - i * 0.03));
+    });
+    this.prism = mesh(new THREE.OctahedronGeometry(0.035, 0), new THREE.MeshBasicMaterial({ color: 0xffffff }), g, v(0, 0.075, 0.02));
+    mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), M.blue, g, v(0, -0.05, -0.09));
+
     this.weapon = 'blaster';
     this.muzzle = this.muzzles.blaster;
 
@@ -259,6 +270,8 @@ export class Viewmodel {
     this.gun.position.set(GUN_POS.x, GUN_POS.y - this.reloadT * 0.06 + r * 0.01 - sw * 0.25, GUN_POS.z + r * 0.05);
     this.gun.rotation.set(r * 0.18 + this.reloadT * 0.5 - sw * 0.6, 0, this.reloadT * -0.5);
     this.netBall.visible = !!s.netLoaded;
+    this.prism.rotation.y += dt * 3;
+    this.prism.material.color.setHSL((this.time * 0.3) % 1, 0.8, 0.65);
     if (s.vacuumOn) {
       this.fan.rotation.z += dt * 40;
       this.gun.position.x += (Math.random() - 0.5) * 0.003;

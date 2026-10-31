@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { WEAPONS, GRAVITY } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 
-export const WEAPON_ORDER = ['blaster', 'net', 'confetti', 'vacuum'];
+export const WEAPON_ORDER = ['blaster', 'net', 'confetti', 'vacuum', 'rainbow'];
+const RAINBOW = [0xff4d6d, 0xff9f1c, 0xffd23f, 0x5fe0b7, 0x3f8efc, 0x9b5de5];
 const CENTER = new THREE.Vector2(0, 0);
 const KO_COLORS = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0xffffff];
 const CONFETTI = [0xff6b8b, 0xffd23f, 0x5fe0b7, 0x9df2ff, 0x7a4fd1, 0xff8a3d];
@@ -104,8 +105,9 @@ export class WeaponSystem {
       if (input.fire && this.cooldown <= 0) this.updateVacuum(dt);
     } else {
       if (input.reloadPressed) this.startReload();
-      if (input.fire && this.cooldown <= 0 && this.reload[this.current] <= 0) {
-        if (this.ammo[this.current] > 0) this.fire();
+      const infinite = this.mag(this.current) === Infinity;
+      if (input.fire && this.cooldown <= 0 && !(this.reload[this.current] > 0)) {
+        if (infinite || this.ammo[this.current] > 0) this.fire();
         else this.startReload();
       }
     }
@@ -122,7 +124,8 @@ export class WeaponSystem {
 
   fire() {
     const id = this.current;
-    this.ammo[id]--;
+    const finite = this.mag(id) !== Infinity;
+    if (finite) this.ammo[id]--;
     const cfg = WEAPONS[id];
     this.cooldown = id === 'blaster' ? this.game.stats.fireCooldown : cfg.cooldown;
     this.player.vm.kickRecoil(id === 'confetti' ? 2 : 1);
@@ -130,17 +133,19 @@ export class WeaponSystem {
     if (id === 'blaster') this.fireBlaster();
     else if (id === 'net') this.fireNet();
     else if (id === 'confetti') this.fireConfetti();
-    if (this.ammo[id] === 0) this.startReload(id);
+    else if (id === 'rainbow') this.fireRainbow();
+    if (finite && this.ammo[id] === 0) this.startReload(id);
   }
 
   // Reports a hit result with sound, particles and hitmarker. Returns true on KO.
-  applyHit(p, result, point) {
+  // quiet: from automation (turrets) — no hitmarker and softer sounds
+  applyHit(p, result, point, { quiet = false } = {}) {
     const game = this.game;
     if (result === 'none') return false;
     const ko = result === 'ko';
-    game.ui.hitmarker(ko, result === 'armor');
+    if (!quiet) game.ui.hitmarker(ko, result === 'armor');
     if (ko) {
-      Audio.play('ko');
+      Audio.play(quiet ? 'hit' : 'ko');
       for (const c of KO_COLORS) game.particles.burst(point, { count: 4, color: c, speed: 2.5, size: 0.05, up: 2.5 });
       game.bus.emit('plushieKO', p);
     } else if (result === 'armor') {
@@ -177,6 +182,35 @@ export class WeaponSystem {
       if (wall < 60) game.particles.burst(end, { count: 4, color: 0xffffff, speed: 1.2, size: 0.04, life: 0.4 });
     }
     game.particles.tracer(from, end);
+  }
+
+  // Legendary rainbow ray: hitscan, every hit is a knockout, armour included.
+  fireRainbow() {
+    const game = this.game;
+    const P = this.player;
+    Audio.play('rainbow');
+    this.aimRay();
+    this.raycaster.far = WEAPONS.rainbow.range;
+    const wall = P.worldHitDistance(this.raycaster);
+    const hits = this.raycaster.intersectObjects(game.plushies.hitTargets(), true);
+    const from = P.vm.muzzle.getWorldPosition(_v).clone();
+    const hit = hits.find((h) => h.distance < wall && P.plushieFromObject(h.object)?.state !== 'ko');
+    const end = hit ? hit.point.clone() : this.raycaster.ray.at(Math.min(wall, WEAPONS.rainbow.range), new THREE.Vector3());
+    // rainbow streak: a few coloured particles along the beam
+    for (let i = 0; i < 8; i++) {
+      const pt = from.clone().lerp(end, i / 8);
+      game.particles.spawn(pt, new THREE.Vector3(0, 0.5, 0), { color: RAINBOW[i % RAINBOW.length], size: 0.05, life: 0.25 });
+    }
+    game.particles.tracer(from, end);
+    if (!hit) return;
+    const p = P.plushieFromObject(hit.object);
+    if (!p) return;
+    p.armor = 0;
+    if (p.helmet) p.helmet.visible = false;
+    p.hp = 0;
+    p.squash = 1;
+    p.knockOut();
+    this.applyHit(p, 'ko', hit.point);
   }
 
   fireNet() {

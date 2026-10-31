@@ -1,17 +1,19 @@
-// Fluffbot: a little vacuum robot that collects knocked-out plushies and drops them into the Stuffer.
+// Fluffbot: a little vacuum robot living on a charging dock. It collects knocked-out plushies
+// and delivers them to the nearest Stuffer with room, or drops them on a Catapult pad.
+// The legendary Mega Fluffbot is faster and carries several plushies per trip.
 import * as THREE from 'three';
-import { LAYOUT } from '../data/config.js';
 import { Audio } from '../systems/Audio.js';
 
 const RADIUS = 0.4;
 const PICK_DIST = 0.75;
-const DROP_OFFSET = LAYOUT.stuffer.d / 2 + 0.75; // park in front of the machine
+const CHAIN_RANGE = 7; // a multi-carry bot grabs more plushies only if they are this close
 const _d = new THREE.Vector3();
 
 let M = null;
 function mats() {
   M ??= {
     shell: new THREE.MeshStandardMaterial({ color: 0xf6f1f6, roughness: 0.35 }),
+    gold: new THREE.MeshStandardMaterial({ color: 0xffc933, metalness: 0.7, roughness: 0.3 }),
     pink: new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5 }),
     screen: new THREE.MeshStandardMaterial({ color: 0x1d1726, roughness: 0.2 }),
     eye: new THREE.MeshBasicMaterial({ color: 0x5fe0b7 }),
@@ -22,16 +24,18 @@ function mats() {
 }
 
 export class Robot {
-  constructor(game, index) {
+  constructor(game, home, { mega = false } = {}) {
     this.game = game;
+    this.mega = mega;
+    this.capacity = mega ? 3 : 1;
     this.state = 'seek';
     this.target = null;
-    this.cargo = null;
+    this.cargo = [];
     this.timer = 0;
     this.heading = 0;
     this.stuck = 0;
     this.sidestep = 0;
-    this.home = new THREE.Vector3(-4 + index * 1.4, 0, -2.5);
+    this.home = home.clone();
     this.mesh = this.build();
     this.pos = this.mesh.position;
     this.pos.copy(this.home);
@@ -40,6 +44,7 @@ export class Robot {
 
   build() {
     const m = mats();
+    const shell = this.mega ? m.gold : m.shell;
     const g = new THREE.Group();
     const add = (geo, mat, x, y, z, parent = g) => {
       const mesh = new THREE.Mesh(geo, mat);
@@ -48,26 +53,31 @@ export class Robot {
       parent.add(mesh);
       return mesh;
     };
-    add(new THREE.CylinderGeometry(0.42, 0.45, 0.2, 24), m.shell, 0, 0.14, 0);
+    add(new THREE.CylinderGeometry(0.42, 0.45, 0.2, 24), shell, 0, 0.14, 0);
     add(new THREE.CylinderGeometry(0.46, 0.46, 0.05, 24), m.pink, 0, 0.06, 0);
-    add(new THREE.SphereGeometry(0.3, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), m.shell, 0, 0.24, -0.05);
-    // face screen
+    add(new THREE.SphereGeometry(0.3, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), shell, 0, 0.24, -0.05);
     const face = add(new THREE.BoxGeometry(0.34, 0.16, 0.04), m.screen, 0, 0.34, 0.2);
     face.rotation.x = -0.35;
     for (const x of [-0.07, 0.07]) add(new THREE.SphereGeometry(0.025, 8, 6), m.eye, x, 0.01, 0.025, face);
-    // antenna
     add(new THREE.CylinderGeometry(0.01, 0.01, 0.2, 6), m.dark, 0, 0.62, -0.1);
     this.bulb = add(new THREE.SphereGeometry(0.035, 8, 6), m.light, 0, 0.73, -0.1);
-    // tray on the back that holds the plushie
+    if (this.mega) {
+      // little crown for the legendary bot
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        add(new THREE.ConeGeometry(0.04, 0.12, 6), m.gold, Math.cos(a) * 0.14, 0.58, -0.05 + Math.sin(a) * 0.14);
+      }
+      g.scale.setScalar(1.2);
+    }
     this.tray = new THREE.Group();
     this.tray.position.set(0, 0.32, -0.22);
     g.add(this.tray);
     return g;
   }
 
-  findTarget() {
+  findTarget(range = Infinity) {
     let best = null;
-    let bestD = Infinity;
+    let bestD = range * range;
     for (const p of this.game.plushies.list) {
       if (p.state !== 'ko' || p.claimedBy) continue;
       const d = p.pos.distanceToSquared(this.pos);
@@ -79,20 +89,28 @@ export class Robot {
     return best;
   }
 
-  // Deliver to the least busy machine, nearer ones first on ties.
-  pickStuffer() {
+  // Nearest place to unload: a Stuffer with room, or a Catapult pad.
+  pickDropoff() {
     let best = null;
-    let score = Infinity;
+    let bestD = Infinity;
     for (const s of this.game.stuffers) {
-      if (!s.enabled) continue;
-      const sc = s.load * 10 + s.center.distanceTo(this.pos);
-      if (sc < score) {
-        score = sc;
-        best = s;
+      if (!s.enabled || !s.hasRoom()) continue;
+      const spot = s.dropSpot;
+      const d = spot.distanceTo(this.pos);
+      if (d < bestD) {
+        bestD = d;
+        best = { kind: 'stuffer', target: s, spot };
       }
     }
-    this.stuffer = best;
-    this.drop = best.center.clone().setZ(best.center.z + DROP_OFFSET);
+    for (const c of this.game.machines) {
+      if (c.type !== 'catapult') continue;
+      const d = c.pos.distanceTo(this.pos);
+      if (d < bestD) {
+        bestD = d;
+        best = { kind: 'catapult', target: c, spot: c.pos.clone() };
+      }
+    }
+    this.dropoff = best;
   }
 
   release() {
@@ -119,7 +137,7 @@ export class Robot {
     const before = this.pos.clone();
     this.pos.x += Math.sin(this.heading) * step;
     this.pos.z += Math.cos(this.heading) * step;
-    this.game.colliders.resolve(this.pos, RADIUS, 0);
+    this.game.colliders.resolve(this.pos, RADIUS, 0.35);
     const moved = before.distanceTo(this.pos);
     this.stuck = moved < step * 0.3 ? this.stuck + dt : 0;
     if (this.stuck > 0.4) {
@@ -129,8 +147,34 @@ export class Robot {
     return dist;
   }
 
+  pickUp(p) {
+    p.state = 'carried';
+    p.claimedBy = null;
+    p.mesh.removeFromParent();
+    p.mesh.position.set(0, this.cargo.length * 0.35, 0);
+    p.mesh.rotation.set(0, 0, 0);
+    p.mesh.scale.setScalar(0.55 * p.def.scale);
+    p.body.rotation.set(0, 0, 0);
+    p.body.position.y = 0;
+    p.stars.visible = false;
+    this.tray.add(p.mesh);
+    this.cargo.push(p);
+    Audio.play('grab');
+  }
+
+  // Puts a carried plushie back in the world at `at`, knocked out.
+  dropInWorld(p, at, koTime = 3) {
+    p.mesh.removeFromParent();
+    p.mesh.scale.setScalar(p.def.scale);
+    p.mesh.rotation.set(0, 0, 0);
+    p.pos.set(at.x, 0, at.z);
+    this.game.scene.add(p.mesh);
+    p.hp = 0;
+    p.knockOut(koTime);
+  }
+
   update(dt) {
-    const speed = this.game.stats.robotSpeed;
+    const speed = this.game.stats.robotSpeed * (this.mega ? 1.6 : 1);
     this.timer -= dt;
     this.bulb.visible = this.state === 'seek' ? Math.sin(performance.now() / 300) > 0 : true;
 
@@ -153,39 +197,53 @@ export class Robot {
         const p = this.target;
         if (!p || p.state !== 'ko' || p.claimedBy !== this) {
           this.release();
-          this.state = 'seek';
+          this.state = this.cargo.length ? 'deliver' : 'seek';
+          if (this.cargo.length) this.pickDropoff();
           break;
         }
         if (this.moveTo(p.pos, speed, dt) < PICK_DIST) {
-          p.state = 'carried';
-          p.claimedBy = null;
-          p.mesh.removeFromParent();
-          p.mesh.position.set(0, 0, 0);
-          p.mesh.rotation.set(0, 0, 0);
-          p.mesh.scale.setScalar(0.55 * p.def.scale);
-          p.body.rotation.set(0, 0, 0);
-          p.body.position.y = 0;
-          p.stars.visible = false;
-          this.tray.add(p.mesh);
-          this.cargo = p;
           this.target = null;
-          this.state = 'deliver';
-          this.pickStuffer();
-          Audio.play('grab');
+          this.pickUp(p);
+          // multi-carry: grab another nearby one before leaving
+          const next = this.cargo.length < this.capacity ? this.findTarget(CHAIN_RANGE) : null;
+          if (next) {
+            this.target = next;
+            next.claimedBy = this;
+          } else {
+            this.state = 'deliver';
+            this.pickDropoff();
+          }
         }
         break;
       }
       case 'deliver': {
-        if (this.moveTo(this.drop, speed, dt) < 0.35) {
-          this.heading = Math.PI; // face the machine
+        if (!this.dropoff) {
           if (this.timer <= 0) {
             this.timer = 0.6;
-            if (!this.stuffer.enabled) this.pickStuffer();
-            else if (this.stuffer.tryAccept(this.cargo, { silent: true })) {
-              this.cargo = null;
-              this.state = 'seek';
-              this.timer = 0.2;
-            } else this.pickStuffer(); // full: maybe the other line has room
+            this.pickDropoff();
+          }
+          break;
+        }
+        const { kind, target, spot } = this.dropoff;
+        if (this.moveTo(spot, speed, dt) < (kind === 'catapult' ? 0.9 : 0.35)) {
+          if (this.timer > 0) break;
+          this.timer = 0.4;
+          if (kind === 'catapult') {
+            if (!this.game.machines.includes(target)) {
+              this.dropoff = null;
+              break;
+            }
+            for (const p of this.cargo) this.dropInWorld(p, target.pos, 6);
+            this.cargo = [];
+          } else {
+            while (this.cargo.length && target.enabled && target.tryAccept(this.cargo[this.cargo.length - 1], { silent: true })) {
+              this.cargo.pop();
+            }
+          }
+          if (this.cargo.length) this.pickDropoff(); // full or gone: try elsewhere
+          else {
+            this.state = 'seek';
+            this.timer = 0.2;
           }
         }
         break;
@@ -195,18 +253,11 @@ export class Robot {
     this.mesh.position.y = Math.abs(Math.sin(performance.now() / 90)) * 0.015;
   }
 
-  // Leave the factory clean: anything still on the tray drops back to the floor knocked out.
+  // Anything still on the tray drops back to the floor knocked out.
   dispose() {
     this.release();
-    if (this.cargo) {
-      const p = this.cargo;
-      p.mesh.removeFromParent();
-      p.mesh.scale.setScalar(p.def.scale);
-      p.pos.set(this.pos.x, 0, this.pos.z + 0.6);
-      this.game.scene.add(p.mesh);
-      p.knockOut(3);
-      this.cargo = null;
-    }
+    for (const p of this.cargo) this.dropInWorld(p, this.pos);
+    this.cargo = [];
     this.mesh.removeFromParent();
   }
 }

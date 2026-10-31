@@ -129,8 +129,10 @@ export class Input {
       btn.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         btn.classList.add('active');
-        if (name === 'fire') this.touch.fire = true;
-        else this.touchPressed.add(name);
+        if (name === 'fire') {
+          this.touch.fire = true;
+          this.touchPressed.add('fire');
+        } else this.touchPressed.add(name);
       });
       const up = () => {
         btn.classList.remove('active');
@@ -176,6 +178,18 @@ export class Input {
   }
   get swapPressed() {
     return this.pressed.has('KeyQ') || this.touchPressed.has('swap');
+  }
+  get buildPressed() {
+    return this.pressed.has('KeyB') || this.touchPressed.has('build');
+  }
+  get xrayPressed() {
+    return this.pressed.has('KeyX') || this.touchPressed.has('xray');
+  }
+  get rotatePressed() {
+    return this.pressed.has('KeyR') || this.touchPressed.has('reload');
+  }
+  get firePressed() {
+    return this.mousePressed[0] || this.touchPressed.has('fire');
   }
   get reloadPressed() {
     return this.pressed.has('KeyR') || this.touchPressed.has('reload');

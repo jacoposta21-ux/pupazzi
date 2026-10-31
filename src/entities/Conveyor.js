@@ -22,95 +22,123 @@ function canMaterial(type) {
 }
 
 export class Conveyor {
-  constructor(game, line) {
+  // cfg: { start: {x, z}, dir: {x, z} (axis-aligned unit), length, end: 'wall' | 'crate' }
+  constructor(game, cfg) {
     this.game = game;
     this.enabled = true;
     const top = LAYOUT.belt.top;
-    const { beltStart: startX, beltEnd: endX, z } = line;
-    const side = Math.sign(endX - startX);
-    this.start = new THREE.Vector3(startX, top, z);
-    this.end = new THREE.Vector3(endX, top, z);
-    this.length = this.start.distanceTo(this.end);
-    this.dir = new THREE.Vector3().subVectors(this.end, this.start).normalize();
-    this.wrapAt = this.length * 0.5;
-    this.side = side;
+    const { start, dir, length } = cfg;
+    this.start = new THREE.Vector3(start.x, top, start.z);
+    this.dir = new THREE.Vector3(dir.x, 0, dir.z);
+    this.length = length;
+    this.end = this.start.clone().addScaledVector(this.dir, length);
+    this.wrapAt = length * 0.5;
     this.cans = [];
+    this.colliders = [];
+    // Everything is built along local +x from the start point, then the group is rotated.
     this.group = new THREE.Group();
+    this.group.position.set(start.x, 0, start.z);
+    this.group.rotation.y = Math.atan2(-dir.z, dir.x);
     game.scene.add(this.group);
 
-    const len = this.length;
-    const midX = (startX + endX) / 2;
-    const add = (geo, mat, x, y, zz) => {
+    const len = length;
+    const add = (geo, mat, x, y, zz, parent = this.group) => {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(x, y, zz);
       m.castShadow = m.receiveShadow = game.shadows;
-      this.group.add(m);
+      parent.add(m);
       return m;
     };
 
     this.tex = beltTexture();
-    this.tex.repeat.set((len / 1.2) * -side, 1);
+    this.tex.repeat.set(-len / 1.2, 1);
     const sideMat = new THREE.MeshStandardMaterial({ color: 0x3a3f47 });
     const topMat = new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.9 });
-    this.belt = add(new THREE.BoxGeometry(len, 0.2, 1.1), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat], midX, top - 0.1, z);
+    this.belt = add(new THREE.BoxGeometry(len, 0.2, 1.1), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat], len / 2, top - 0.1, 0);
     game.solids.push(this.belt);
 
     const railMat = new THREE.MeshStandardMaterial({ map: hazardTexture(len) });
-    for (const sz of [-0.6, 0.6]) add(new THREE.BoxGeometry(len, 0.18, 0.1), railMat, midX, top + 0.05, z + sz);
+    for (const sz of [-0.6, 0.6]) add(new THREE.BoxGeometry(len, 0.18, 0.1), railMat, len / 2, top + 0.05, sz);
     const legMat = new THREE.MeshStandardMaterial({ color: 0x59606b });
     for (let i = 0.6; i < len; i += 1.8) {
-      for (const sz of [-0.45, 0.45]) add(new THREE.BoxGeometry(0.12, top - 0.2, 0.12), legMat, startX + side * i, (top - 0.2) / 2, z + sz);
+      for (const sz of [-0.45, 0.45]) add(new THREE.BoxGeometry(0.12, top - 0.2, 0.12), legMat, i, (top - 0.2) / 2, sz);
     }
-    this.collider = game.colliders.add(Math.min(startX, endX), Math.max(startX, endX), z - 0.65, z + 0.65, top);
+    this.colliders.push(this.addRect(0, len, -0.65, 0.65, top));
 
-    // Shipping chute in the wall
-    const wallX = side < 0 ? LAYOUT.floor.minX : LAYOUT.floor.maxX;
-    add(new THREE.BoxGeometry(0.3, 1.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x1b1d22 }), wallX - side * 0.1, top + 0.55, z);
-    const flapMat = new THREE.MeshStandardMaterial({ color: 0x2c6fd1, transparent: true, opacity: 0.8 });
-    for (let i = -3; i <= 3; i++) add(new THREE.BoxGeometry(0.04, 1.2, 0.2), flapMat, wallX - side * 0.3, top + 0.6, z + i * 0.21);
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.2, 0.8),
-      new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
-    );
-    sign.position.set(wallX - side * 0.01, 3.1, z);
-    sign.rotation.y = -side * Math.PI / 2;
-    this.group.add(sign);
+    if (cfg.end === 'wall') {
+      // Shipping chute in the wall right after the belt end
+      add(new THREE.BoxGeometry(0.3, 1.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x1b1d22 }), len + 0.5, top + 0.55, 0);
+      const flapMat = new THREE.MeshStandardMaterial({ color: 0x2c6fd1, transparent: true, opacity: 0.8 });
+      for (let i = -3; i <= 3; i++) add(new THREE.BoxGeometry(0.04, 1.2, 0.2), flapMat, len + 0.3, top + 0.6, i * 0.21);
+      const sign = new THREE.Mesh(
+        new THREE.PlaneGeometry(3.2, 0.8),
+        new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
+      );
+      sign.position.set(len + 0.39, 3.1, 0);
+      sign.rotation.y = -Math.PI / 2;
+      this.group.add(sign);
+    } else {
+      // Shipping crate: cans drop in and get paid
+      const crate = new THREE.Group();
+      crate.position.set(len + 0.65, 0, 0);
+      this.group.add(crate);
+      const wood = new THREE.MeshStandardMaterial({ color: 0x3f73c4, roughness: 0.7 });
+      add(new THREE.BoxGeometry(1.3, 0.85, 1.6), wood, 0, 0.425, 0, crate);
+      add(new THREE.BoxGeometry(1.1, 0.05, 1.4), new THREE.MeshStandardMaterial({ color: 0x15121c }), 0, 0.86, 0, crate);
+      const label = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.2, 0.3),
+        new THREE.MeshBasicMaterial({ map: signTexture('SHIPPING', '#3f73c4'), toneMapped: false }),
+      );
+      label.position.set(0.66, 0.5, 0);
+      label.rotation.y = Math.PI / 2;
+      crate.add(label);
+      this.colliders.push(this.addRect(len, len + 1.3, -0.8, 0.8, 0.85));
+    }
 
-    // Gift Wrapper arch (hidden until bought)
+    // Gift Wrapper arch (shown when bought)
     this.wrapper = new THREE.Group();
-    const wx = startX + side * this.wrapAt;
-    this.wrapper.position.set(wx, top, z);
+    this.wrapper.position.set(this.wrapAt, top, 0);
     const archMat = new THREE.MeshStandardMaterial({ color: 0x7a4fd1, roughness: 0.5 });
     const bowMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.4 });
-    for (const sz of [-0.7, 0.7]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.4, 0.15), archMat);
-      post.position.set(0, 0.7, sz);
-      this.wrapper.add(post);
-    }
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.3, 1.6), archMat);
-    beam.position.y = 1.45;
-    this.wrapper.add(beam);
+    for (const sz of [-0.7, 0.7]) add(new THREE.BoxGeometry(0.25, 1.4, 0.15), archMat, 0, 0.7, sz, this.wrapper);
+    add(new THREE.BoxGeometry(0.35, 0.3, 1.6), archMat, 0, 1.45, 0, this.wrapper);
     for (const sz of [-0.12, 0.12]) {
-      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.05, 8, 16), bowMat);
-      bow.position.set(0, 1.75, sz);
+      const bow = add(new THREE.TorusGeometry(0.14, 0.05, 8, 16), bowMat, 0, 1.75, sz, this.wrapper);
       bow.rotation.y = Math.PI / 2;
-      this.wrapper.add(bow);
     }
     const label = new THREE.Mesh(
       new THREE.PlaneGeometry(1.4, 0.26),
       new THREE.MeshBasicMaterial({ map: signTexture('GIFT WRAP', '#7a4fd1'), toneMapped: false, side: THREE.DoubleSide }),
     );
-    label.position.set(-side * 0.18, 1.45, 0);
+    label.position.set(-0.18, 1.45, 0);
     label.rotation.y = Math.PI / 2;
     this.wrapper.add(label);
     this.wrapper.visible = false;
     this.group.add(this.wrapper);
   }
 
+  // Adds a collider for a rectangle given in belt-local coordinates (x along the belt).
+  addRect(x0, x1, z0, z1, height) {
+    const pts = [
+      [x0, z0], [x1, z0], [x0, z1], [x1, z1],
+    ].map(([lx, lz]) => [this.start.x + this.dir.x * lx - this.dir.z * lz, this.start.z + this.dir.z * lx + this.dir.x * lz]);
+    const xs = pts.map((p) => p[0]);
+    const zs = pts.map((p) => p[1]);
+    return this.game.colliders.add(Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs), height);
+  }
+
+  dispose() {
+    this.flush();
+    this.group.removeFromParent();
+    for (const c of this.colliders) this.game.colliders.remove(c);
+    const i = this.game.solids.indexOf(this.belt);
+    if (i >= 0) this.game.solids.splice(i, 1);
+  }
+
   setEnabled(on) {
     this.enabled = on;
     this.group.visible = on;
-    this.collider.disabled = !on;
+    for (const c of this.colliders) c.disabled = !on;
     const i = this.game.solids.indexOf(this.belt);
     if (on && i < 0) this.game.solids.push(this.belt);
     if (!on && i >= 0) this.game.solids.splice(i, 1);

@@ -17,13 +17,19 @@ const lerpAngle = (a, b, t) => {
 };
 const rand = (a, b) => a + Math.random() * (b - a);
 
+// Gold nugget hidden inside some plushies: only visible through the X-ray scanner.
+const nuggetGeo = new THREE.OctahedronGeometry(0.16, 0);
+const nuggetMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, depthTest: false, transparent: true, opacity: 0.95 });
+const haloMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0, depthTest: false, transparent: true, opacity: 0.35 });
+const haloGeo = new THREE.SphereGeometry(0.32, 12, 8);
+
 let lastSqueak = 0;
 
 export class Plushie {
-  constructor(type, day, shadows) {
+  constructor(type, level, shadows) {
     this.type = type;
     this.def = PLUSHIES[type];
-    this.maxHp = plushieHp(type, day);
+    this.maxHp = plushieHp(type, level);
     this.hp = this.maxHp;
     const model = buildPlushie(this.def, shadows);
     this.mesh = model.root;
@@ -46,6 +52,17 @@ export class Plushie {
     this.koTimer = 0;
     this.rejectCooldown = 0;
     this.lying = 0;
+    this.nugget = Math.random() < (this.def.nugget ?? 0);
+    if (this.nugget) {
+      this.nuggetMarker = new THREE.Group();
+      const n = new THREE.Mesh(nuggetGeo, nuggetMat);
+      const h = new THREE.Mesh(haloGeo, haloMat);
+      n.renderOrder = h.renderOrder = 999;
+      this.nuggetMarker.add(h, n);
+      this.nuggetMarker.position.y = 0.5;
+      this.nuggetMarker.visible = false;
+      this.mesh.add(this.nuggetMarker);
+    }
   }
 
   get grabbable() {
@@ -102,12 +119,35 @@ export class Plushie {
     this.timer = 2;
   }
 
-  pickNewTarget() {
-    this.target.set(rand(-15, 15), 0, rand(-12, 21));
+  pickNewTarget(ctx) {
+    // a Lure nearby wins over random wandering
+    let lure = null;
+    let best = Infinity;
+    for (const m of ctx?.lures ?? []) {
+      const d = m.pos.distanceTo(this.pos);
+      if (d < m.radius && d < best) {
+        best = d;
+        lure = m;
+      }
+    }
+    if (lure) {
+      const a = Math.random() * Math.PI * 2;
+      const r = rand(1.2, 2.4);
+      this.target.set(lure.pos.x + Math.cos(a) * r, 0, lure.pos.z + Math.sin(a) * r);
+    } else this.target.set(rand(-15, 15), 0, rand(-12, 21));
+  }
+
+  // The nugget comes out when a player grabs the plushie by hand. Returns true if there was one.
+  extractNugget() {
+    if (!this.nugget) return false;
+    this.nugget = false;
+    this.nuggetMarker?.removeFromParent();
+    return true;
   }
 
   update(dt, ctx) {
     this.anim += dt;
+    this.xray = !!ctx.xray;
     this.squash = Math.max(0, this.squash - dt * 5);
     this.rejectCooldown = Math.max(0, this.rejectCooldown - dt);
     let speed = 0;
@@ -143,7 +183,7 @@ export class Plushie {
         if (this.state === 'idle') {
           if (this.timer <= 0) {
             this.state = 'wander';
-            this.pickNewTarget();
+            this.pickNewTarget(ctx);
             this.timer = rand(4, 8);
           }
         } else {
@@ -286,6 +326,13 @@ export class Plushie {
     const eyeY = this.state === 'ko' || this.state === 'dazed' ? 0.15 : 1;
     for (const e of this.eyes) e.scale.y = THREE.MathUtils.lerp(e.scale.y, 0.05 * eyeY, Math.min(1, dt * 15));
 
+    if (this.nuggetMarker) {
+      this.nuggetMarker.visible = this.xray && this.nugget;
+      if (this.nuggetMarker.visible) {
+        this.nuggetMarker.rotation.y += dt * 3;
+        this.nuggetMarker.scale.setScalar(1 + Math.sin(this.anim * 6) * 0.15);
+      }
+    }
     this.stars.visible = this.state === 'ko' || this.state === 'dazed';
     if (this.stars.visible) {
       this.stars.rotation.y += dt * 4;
@@ -304,27 +351,27 @@ export class PlushieManager {
     return this.list.length;
   }
 
-  spawn(type, day) {
-    const p = new Plushie(type, day, this.game.shadows);
+  spawn(type, level) {
+    const p = new Plushie(type, level, this.game.shadows);
     this.list.push(p);
     this.game.scene.add(p.mesh);
     return p;
   }
 
-  spawnWandering(type, day) {
-    const p = this.spawn(type, day);
+  spawnWandering(type, level) {
+    const p = this.spawn(type, level);
     p.pos.set(rand(-14, 14), 0, rand(-2, 20));
     if (this.game.colliders.pointInside(p.pos.x, p.pos.z)) p.pos.set(rand(-4, 4), 0, rand(8, 16));
     return p;
   }
 
   // Matryoshka: replace a knocked-out mama with a handful of minis that pop out and run.
-  split(p, day) {
+  split(p, level) {
     const { splitsInto, splitCount } = p.def;
     const from = p.pos.clone().setY(0.6);
     this.remove(p);
     for (let i = 0; i < splitCount; i++) {
-      const mini = this.spawn(splitsInto, day);
+      const mini = this.spawn(splitsInto, level);
       const a = (i / splitCount) * Math.PI * 2 + Math.random();
       const to = new THREE.Vector3(from.x + Math.cos(a) * 1.8, 0, from.z + Math.sin(a) * 1.8);
       if (this.game.colliders.pointInside(to.x, to.z)) to.set(from.x, 0, from.z);

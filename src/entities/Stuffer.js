@@ -1,13 +1,14 @@
 // The Stuffer: plushies thrown into the hopper are queued, processed in parallel slots and turned into cans.
 import * as THREE from 'three';
-import { LAYOUT } from '../data/config.js';
+import { LAYOUT, levelValueMult } from '../data/config.js';
 import { hazardTexture, signTexture } from '../world/Textures.js';
 import { Audio } from '../systems/Audio.js';
 
 const MAX_LAMPS = 6;
 
 export class Stuffer {
-  constructor(game, line, conveyor) {
+  // cfg: { x, z, out: {x, z} } — out = unit direction (axis-aligned) the belt leaves towards
+  constructor(game, cfg, conveyor) {
     this.game = game;
     this.conveyor = conveyor;
     this.enabled = true;
@@ -15,9 +16,11 @@ export class Stuffer {
     this.working = [];
     this.shake = 0;
     const { w, d, h } = LAYOUT.stuffer;
-    const { x, z } = line;
-    const side = Math.sign(line.beltStart - x); // which side the belt leaves from
+    const { x, z, out } = cfg;
     this.center = new THREE.Vector3(x, 0, z);
+    this.out = new THREE.Vector3(out.x, 0, out.z);
+    // where robots park to unload: the side opposite the belt
+    this.dropSpot = this.center.clone().addScaledVector(this.out, -(w / 2 + 0.75));
     this.top = h;
     this.hopperCenter = new THREE.Vector3(x, h + 0.4, z);
     this.bounds = { minX: x - w / 2 - 0.15, maxX: x + w / 2 + 0.15, minZ: z - d / 2 - 0.15, maxZ: z + d / 2 + 0.15 };
@@ -25,6 +28,8 @@ export class Stuffer {
     const shadows = game.shadows;
     this.group = new THREE.Group();
     this.group.position.copy(this.center);
+    // local +x points along `out`
+    this.group.rotation.y = Math.atan2(-out.z, out.x);
     game.scene.add(this.group);
     this.inner = new THREE.Group();
     this.group.add(this.inner);
@@ -75,7 +80,8 @@ export class Stuffer {
       new THREE.PlaneGeometry(2.4, 0.6),
       new THREE.MeshBasicMaterial({ map: signTexture('STUFFER', '#2a2140'), toneMapped: false }),
     );
-    sign.position.set(0, h - 0.5, d / 2 + 0.01);
+    sign.position.set(0, h - 0.5, -d / 2 - 0.01);
+    sign.rotation.y = Math.PI;
     this.inner.add(sign);
 
     this.lamps = [];
@@ -86,18 +92,25 @@ export class Stuffer {
     const lampGeo = new THREE.SphereGeometry(0.12, 12, 8);
     for (let i = 0; i < MAX_LAMPS; i++) {
       const l = new THREE.Mesh(lampGeo, this.lampOff);
-      l.position.set(-0.9 + i * 0.36, h - 1.1, d / 2 + 0.05);
+      l.position.set(0.9 - i * 0.36, h - 1.1, -d / 2 - 0.05);
       this.inner.add(l);
       this.lamps.push(l);
     }
 
     // output spout towards the belt
     const spout = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0x3a3f47 }));
-    spout.position.set(side * (w / 2 + 0.2), LAYOUT.belt.top + 0.45, 0);
+    spout.position.set(w / 2 + 0.2, LAYOUT.belt.top + 0.45, 0);
     this.group.add(spout);
-    this.spoutPos = new THREE.Vector3(x + side * (w / 2 + 0.3), LAYOUT.belt.top + 0.5, z);
+    this.spoutPos = new THREE.Vector3(x + out.x * (w / 2 + 0.3), LAYOUT.belt.top + 0.5, z + out.z * (w / 2 + 0.3));
 
     this.collider = game.colliders.add(x - w / 2, x + w / 2, z - d / 2, z + d / 2, h);
+  }
+
+  dispose() {
+    this.group.removeFromParent();
+    this.game.colliders.remove(this.collider);
+    const i = this.game.solids.indexOf(this.body);
+    if (i >= 0) this.game.solids.splice(i, 1);
   }
 
   setEnabled(on) {
@@ -163,7 +176,7 @@ export class Stuffer {
       if (job.t >= stats.processTime) {
         if (this.conveyor.hasRoom()) {
           this.working.splice(i, 1);
-          this.conveyor.addCan(Math.round(job.value * stats.valueMult), job.type);
+          this.conveyor.addCan(this.canValue(job.value), job.type);
           this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });
         } else {
           this.blocked = true;
@@ -194,11 +207,14 @@ export class Stuffer {
     }
   }
 
-  // End of day: all queued and in-progress plushies are finished instantly. Returns total value.
+  canValue(base) {
+    return Math.round(base * this.game.stats.valueMult * levelValueMult(this.game.level));
+  }
+
+  // All queued and in-progress plushies are finished instantly. Returns total value.
   flush() {
-    const mult = this.game.stats.valueMult;
     let total = 0;
-    for (const j of [...this.queue, ...this.working]) total += Math.round(j.value * mult);
+    for (const j of [...this.queue, ...this.working]) total += this.canValue(j.value);
     this.queue.length = 0;
     this.working.length = 0;
     return total;

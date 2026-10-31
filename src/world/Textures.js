@@ -134,3 +134,16 @@ export function signTexture(text, bg = '#ff6b8b', fg = '#fff', w = 512, h = 128)
   g.fillText(text, w / 2, h / 2 + 4);
   return toTexture(c);
 }
+
+export function shutterTexture() {
+  const [c, g] = makeCanvas(128, 256);
+  g.fillStyle = '#9aa4b2';
+  g.fillRect(0, 0, 128, 256);
+  for (let y = 0; y < 256; y += 16) {
+    g.fillStyle = '#7d8796';
+    g.fillRect(0, y + 12, 128, 4);
+    g.fillStyle = 'rgba(255,255,255,0.25)';
+    g.fillRect(0, y, 128, 2);
+  }
+  return toTexture(c, [3, 2]);
+}

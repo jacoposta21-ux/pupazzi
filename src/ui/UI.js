@@ -1,21 +1,27 @@
-// DOM overlay: menus, HUD, shop, toasts and floating numbers. Reads game state, never mutates it directly.
+// DOM overlay: menus, HUD, shop terminal, build bar, toasts and floating numbers.
+// Reads game state; purchases go through GameManager methods.
 import * as THREE from 'three';
-import { t, applyI18n } from '../i18n.js';
-import { UPGRADES, UNLOCKS, COSMETICS, WEAPONS, upgradeCost } from '../data/config.js';
+import { t, applyI18n, lang } from '../i18n.js';
+import {
+  UPGRADES, UNLOCKS, COSMETICS, WEAPONS, PLACEABLES, LEGENDARY_WEAPONS, GOAL, XRAY_AD_SECONDS,
+  upgradeCost, placeableCost, levelThreshold, MAX_LEVEL,
+} from '../data/config.js';
+import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
 
 const $ = (id) => document.getElementById(id);
-const fmtTime = (s) => {
-  s = Math.max(0, Math.ceil(s));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-};
 const _p = new THREE.Vector3();
+const locale = lang === 'it' ? 'it-IT' : 'en-US';
+const compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 2 });
+const full = new Intl.NumberFormat(locale);
 
 export class UI {
   constructor(game) {
     this.game = game;
     this.floaters = [];
     this.cache = {};
+    this.tab = 'upgrades';
+    this.victoryOpen = false;
     applyI18n();
     document.body.classList.toggle('touch', game.isTouch);
 
@@ -26,14 +32,13 @@ export class UI {
         Audio.play('click');
         fn();
       });
-    click('btn-new', () => game.newGame());
+    click('btn-new', () => this.onNewGame());
     click('btn-continue', () => game.continueGame());
     click('btn-resume', () => game.resume());
     click('btn-quit', () => game.toMenu());
-    click('btn-next', () => game.nextDay());
-    click('btn-double', () => game.doubleEarnings());
+    click('btn-close-shop', () => game.closeShop());
+    click('btn-victory', () => game.closeVictory());
     click('btn-touch-pause', () => game.pause());
-    this.tab = 'upgrades';
     document.querySelectorAll('.tab').forEach((el) =>
       el.addEventListener('click', () => {
         Audio.play('click');
@@ -68,6 +73,9 @@ export class UI {
     $('pause').addEventListener('click', (e) => {
       if (e.target.id === 'pause') game.resume();
     });
+    addEventListener('keydown', (e) => {
+      if (game.shopOpen && (e.code === 'Escape' || e.code === 'KeyE')) game.closeShop();
+    });
     const sens = $('sens');
     sens.value = game.settings.sens;
     sens.addEventListener('input', () => {
@@ -76,6 +84,10 @@ export class UI {
     });
     this.refreshSettings();
     this.shownCash = 0;
+  }
+
+  money(v) {
+    return '$' + (v >= 100000 ? compact.format(v) : full.format(Math.round(v)));
   }
 
   refreshSettings() {
@@ -94,25 +106,38 @@ export class UI {
     this.show('loading', false);
   }
 
-  showMenu(save) {
-    for (const id of ['hud', 'pause', 'dayend', 'touch-ui']) this.show(id, false);
-    this.show('menu');
-    const cont = $('btn-continue');
-    const best = save?.totals?.bestDay || 0;
-    $('menu-best').textContent = t('bestDay', { v: best });
-    $('menu-best').classList.toggle('hidden', !best);
-    if (save && save.day > 1) {
-      cont.textContent = t('continue', { day: save.day });
-      cont.classList.remove('hidden');
-      $('btn-new').classList.remove('primary');
-    } else {
-      cont.classList.add('hidden');
-      $('btn-new').classList.add('primary');
+  // New game over an existing save needs a second click to confirm.
+  onNewGame() {
+    const btn = $('btn-new');
+    if (this.game.save && !this.confirmNew) {
+      this.confirmNew = true;
+      btn.textContent = t('confirmNew');
+      btn.classList.add('danger');
+      return;
     }
+    this.confirmNew = false;
+    this.game.newGame();
+  }
+
+  showMenu(save) {
+    for (const id of ['hud', 'pause', 'shop-screen', 'victory', 'touch-ui']) this.show(id, false);
+    this.show('menu');
+    this.confirmNew = false;
+    const btnNew = $('btn-new');
+    btnNew.textContent = t('newGame');
+    btnNew.classList.remove('danger');
+    const cont = $('btn-continue');
+    const earned = save?.earned ?? save?.totals?.earned ?? 0;
+    const has = !!save && (earned > 0 || save.day > 1 || save.placed?.length);
+    $('menu-progress').textContent = t('menuProgress', { v: this.money(earned), g: this.money(GOAL) });
+    $('menu-progress').classList.toggle('hidden', !has);
+    cont.textContent = t('continue');
+    cont.classList.toggle('hidden', !has);
+    btnNew.classList.toggle('primary', !has);
   }
 
   showGameplay() {
-    for (const id of ['menu', 'pause', 'dayend']) this.show(id, false);
+    for (const id of ['menu', 'pause', 'shop-screen', 'victory']) this.show(id, false);
     this.show('hud');
     this.show('touch-ui', this.game.isTouch);
     this.cache = {};
@@ -120,6 +145,24 @@ export class UI {
 
   showPause(v) {
     this.show('pause', v);
+  }
+
+  showShop(v) {
+    this.show('shop-screen', v);
+    this.show('touch-ui', !v && this.game.isTouch);
+    if (v) this.renderShop();
+  }
+
+  showVictory() {
+    this.victoryOpen = true;
+    const T = this.game.data.totals;
+    $('victory-text').textContent = t('victoryText', { s: full.format(T.stuffed), k: full.format(T.knockouts), n: T.nuggets || 0 });
+    this.show('victory');
+  }
+
+  hideVictory() {
+    this.victoryOpen = false;
+    this.show('victory', false);
   }
 
   set(id, text) {
@@ -133,65 +176,108 @@ export class UI {
     const g = this.game;
     const st = g.stats;
     const p = g.player;
+    const D = g.data;
+
     // cash counts up smoothly and bumps when it grows
-    const target = g.data.cash;
-    if (target > this.shownCash) {
-      this.shownCash = Math.min(target, this.shownCash + Math.max(1, Math.ceil((target - this.shownCash) * 0.15)));
+    if (D.cash > this.shownCash) {
+      this.shownCash = Math.min(D.cash, this.shownCash + Math.max(1, Math.ceil((D.cash - this.shownCash) * 0.15)));
       const pill = $('hud-cash-pill');
       if (!pill.classList.contains('bump')) {
         pill.classList.add('bump');
         setTimeout(() => pill.classList.remove('bump'), 250);
       }
-    } else this.shownCash = target;
-    this.set('hud-cash', `$${this.shownCash}`);
-    this.set('hud-day', t('day', { n: g.data.day }));
-    this.set('hud-quota-label', t('quota', { cur: g.dayStats.earned, goal: g.quota }));
-    const fill = $('hud-quota-fill');
-    const pct = Math.min(100, (g.dayStats.earned / g.quota) * 100);
-    fill.style.width = `${pct}%`;
-    fill.classList.toggle('done', pct >= 100);
+    } else this.shownCash = D.cash;
+    this.set('hud-cash', this.money(this.shownCash));
+    this.set('hud-nuggets', `💎 ${D.nuggets}`);
 
-    const timer = $('hud-timer');
-    this.set('hud-timer', fmtTime(g.timeLeft));
-    timer.classList.toggle('danger', g.timeLeft <= 10);
+    // factory level + $1M goal
+    const L = g.level;
+    const lo = levelThreshold(L);
+    const hi = levelThreshold(L + 1);
+    this.set('hud-level', t('level', { n: L }));
+    $('hud-level-fill').style.width = L >= MAX_LEVEL ? '100%' : `${Math.min(100, ((D.earned - lo) / (hi - lo)) * 100)}%`;
+    this.set('hud-goal', t('goal', { v: this.money(D.earned), g: this.money(GOAL) }));
 
+    // deliveries
     let truck;
     if (g.trucks.some((tr) => tr.state === 'unloading')) truck = t('truckHere');
-    else if (g.truckSchedule.length) truck = t('truckIn', { s: Math.max(0, Math.ceil(g.truckSchedule[0].at - g.dayTime)) });
-    else truck = g.trucks.length ? '' : t('noMoreTrucks');
+    else if (g.trucks.some((tr) => tr.state === 'arriving')) truck = t('truckComing');
+    else if (g.plushies.count >= 70) truck = t('factoryFull');
+    else truck = t('truckIn', { s: Math.max(0, Math.ceil(g.nextTruck)) });
     this.set('hud-truck', truck);
 
-    const active = g.stuffers.filter((x) => x.enabled);
-    const busy = active.reduce((n, x) => n + x.busy, 0);
-    const queued = active.reduce((n, x) => n + x.queue.length, 0);
-    const blocked = active.some((x) => x.blocked);
-    this.set('hud-machine', t('machine', { busy, slots: st.slots * active.length, q: queued }) + (blocked ? t('beltFull') : ''));
+    // X-ray
+    const xr = g.xrayActive;
+    this.show('xray-overlay', xr);
+    this.show('hud-xray', xr || !!D.unlocks.scanner);
+    this.set('hud-xray', g.xrayTimer > 0 ? t('xrayTimer', { s: Math.ceil(g.xrayTimer) }) : t(g.xrayOn ? 'xrayOnHint' : 'xrayOffHint'));
+
+    // machines
+    const busy = g.stuffers.reduce((n, x) => n + x.busy, 0);
+    const queued = g.stuffers.reduce((n, x) => n + x.queue.length, 0);
+    const blocked = g.stuffers.some((x) => x.blocked);
+    this.set('hud-machine', t('machine', { busy, slots: st.slots * g.stuffers.length, q: queued }) + (blocked ? t('beltFull') : ''));
+
+    // mission
+    const m = g.missions.current;
+    this.show('mission', !!m);
+    if (m) {
+      $('mission').classList.toggle('done', !!m.done);
+      this.set('mission-title', (m.done ? '✅ ' : '🎯 ') + t('m_' + m.id, { n: this.missionGoal(m), type: m.target ? t('p_' + m.target) : '' }));
+      $('mission-fill').style.width = `${(m.progress / m.goal) * 100}%`;
+      this.set('mission-progress', m.id === 'ship' ? `${this.money(m.progress)} / ${this.money(m.goal)}` : `${m.progress} / ${m.goal}`);
+      this.set('mission-time', m.done ? `+${this.money(m.reward)}${m.nugget ? ' 💎' : ''}` : `⏱ ${Math.ceil(m.time)}s · ${this.money(m.reward)}${m.nugget ? ' 💎' : ''}`);
+    }
+
     this.set('hud-carry', t('carry', { n: p.carried.length, max: st.carry }));
-    const W = p.weapons;
-    const cur = W.current;
-    const mag = W.mag(cur);
-    this.set(
-      'hud-ammo',
-      W.reloading
-        ? `<small>${t('reloading')}</small>`
-        : mag === Infinity
-          ? `${WEAPONS[cur].icon} <small>∞</small>`
-          : `${WEAPONS[cur].icon} ${W.ammo[cur]}<small> / ${mag}</small>`,
-    );
-    // weapon bar (only when more than one weapon is owned)
-    const list = W.list;
-    const bar = list.length > 1 ? list.map((id) => `<div class="slot${id === cur ? ' active' : ''}"><small>${WEAPONS[id].slot}</small>${WEAPONS[id].icon}</div>`).join('') : '';
-    this.set('weapon-bar', bar);
+
+    // build mode vs weapons
+    const B = g.build;
+    this.show('build-bar', B.active);
+    this.show('weapon-bar', !B.active);
+    this.show('hud-ammo', !B.active);
+    if (B.active) {
+      const inv = D.inventory;
+      const types = B.inventoryTypes;
+      this.set(
+        'build-items',
+        types.length
+          ? types.map((id, i) => {
+              const def = PLACEABLES.find((x) => x.id === id);
+              return `<div class="slot${id === B.type ? ' active' : ''}"><small>${i + 1}</small>${def.icon}<b>${inv[id]}</b></div>`;
+            }).join('')
+          : `<div class="empty">${t('buildEmpty')}</div>`,
+      );
+      const name = B.type ? t('pl_' + B.type) : '';
+      this.set('build-hint', (name ? `<b>${name}</b> · ` : '') + t(g.isTouch ? 'buildHintTouch' : 'buildHint'));
+    } else {
+      const W = p.weapons;
+      const cur = W.current;
+      const mag = W.mag(cur);
+      this.set(
+        'hud-ammo',
+        W.reloading
+          ? `<small>${t('reloading')}</small>`
+          : mag === Infinity
+            ? `${WEAPONS[cur].icon} <small>∞</small>`
+            : `${WEAPONS[cur].icon} ${W.ammo[cur]}<small> / ${mag}</small>`,
+      );
+      const list = W.list;
+      this.set('weapon-bar', list.length > 1 ? list.map((id) => `<div class="slot${id === cur ? ' active' : ''}"><small>${WEAPONS[id].slot}</small>${WEAPONS[id].icon}</div>`).join('') : '');
+    }
 
     const touch = g.isTouch;
     let prompt = '';
-    if (p.aimed) {
-      prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name: t('p_' + p.aimed.type) });
-    } else if (p.aimingAtStuffer) {
-      prompt = t('throwHint', { key: touch ? '🎯 ' : '[F] ' });
-    }
+    if (B.active) prompt = B.hovered && !B.type ? t('pickUpHint', { key: touch ? '✋ ' : '[E] ' }) : '';
+    else if (p.aimed) prompt = p.carried.length >= st.carry ? t('handsFull') : t('grab', { key: touch ? '✋ ' : '[E] ', name: t('p_' + p.aimed.type) });
+    else if (p.atTerminal) prompt = t('terminalHint', { key: touch ? '✋ ' : '[E] ' });
+    else if (p.aimingAtStuffer) prompt = t('throwHint', { key: touch ? '🎯 ' : '[F] ' });
     this.set('prompt', prompt);
-    $('crosshair').classList.toggle('target', !!p.aimed || p.aimingAtStuffer);
+    $('crosshair').classList.toggle('target', !!p.aimed || p.aimingAtStuffer || p.atTerminal);
+  }
+
+  missionGoal(m) {
+    return m.id === 'ship' ? this.money(m.goal) : m.goal;
   }
 
   hitmarker(ko, armor = false) {
@@ -207,9 +293,8 @@ export class UI {
     this.show('tutorial', !!step);
     if (!step) return;
     const touch = this.game.isTouch;
-    const keys = { shoot: touch ? '' : '[Click]', grab: touch ? '✋' : '[E]', throw: touch ? '🎯' : '[F]' };
+    const keys = { shoot: touch ? '' : '[Click]', grab: touch ? '✋' : '[E]', throw: touch ? '🎯' : '[F]', terminal: touch ? '✋' : '[E]' };
     $('tutorial-text').textContent = t('tut_' + step, { key: keys[step] ?? '' });
-    $('tutorial-sub').textContent = this.game.tutorial.holdsClock ? t('tutClock') : '';
     const el = $('tutorial');
     el.style.animation = 'none';
     void el.offsetWidth;
@@ -221,7 +306,7 @@ export class UI {
     el.textContent = t(key, vars);
     el.classList.add('show');
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    this.toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
   }
 
   floater(text, pos, cls = '') {
@@ -259,44 +344,13 @@ export class UI {
     this.floaters.length = 0;
   }
 
-  showDayEnd(summary) {
-    this.show('hud', false);
-    this.show('touch-ui', false);
-    this.show('pause', false);
-    this.show('dayend');
-    $('de-title').textContent = t('dayComplete', { n: summary.day });
-    const stat = (v, k, pre = '') => `<div class="stat"><b data-count="${v}" data-pre="${pre}">${pre}0</b><span>${t(k)}</span></div>`;
-    $('de-summary').innerHTML =
-      stat(summary.stuffed, 'statStuffed') +
-      stat(summary.knockouts, 'statKO') +
-      stat(summary.shipped, 'statEarned', '$') +
-      stat(summary.flushed, 'statFlush', '$');
-    // count-up animation
-    const els = [...$('de-summary').querySelectorAll('[data-count]')];
-    const t0 = performance.now();
-    const tick = () => {
-      const k = Math.min(1, (performance.now() - t0) / 900);
-      const e = 1 - Math.pow(1 - k, 3);
-      for (const el of els) el.textContent = el.dataset.pre + Math.round(el.dataset.count * e);
-      if (k < 1) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-    const q = $('de-quota');
-    q.className = 'quota-result ' + (summary.quotaMet ? 'ok' : 'miss');
-    q.textContent = summary.quotaMet
-      ? t('quotaMet', { b: summary.bonus })
-      : t('quotaMissed', { cur: summary.earned, goal: summary.quota });
-    if (summary.record) q.textContent += ' · ' + t('newRecord');
-    $('btn-double').classList.toggle('hidden', !summary.canDouble);
-    $('btn-double').disabled = false;
-    $('btn-double').textContent = t('doubleAd');
-    $('btn-next').textContent = t('nextDay', { n: this.game.data.day });
-    this.renderShop();
-  }
+  // ---------- Shop terminal ----------
 
   renderShop() {
     const g = this.game;
-    $('de-cash').textContent = `$${g.data.cash}`;
+    const D = g.data;
+    $('shop-cash').textContent = this.money(D.cash);
+    $('shop-nuggets').textContent = D.nuggets;
     document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.tab === this.tab));
     const shop = $('shop');
     shop.innerHTML = '';
@@ -309,53 +363,93 @@ export class UI {
       h.textContent = t('cat_' + c);
       shop.appendChild(h);
     };
+    const note = (key) => {
+      const n = document.createElement('div');
+      n.className = 'shop-note';
+      n.textContent = t(key);
+      shop.appendChild(n);
+    };
     const card = ({ html, disabled, cls = [], onClick }) => {
       const btn = document.createElement('button');
       btn.className = ['upg', ...cls].join(' ');
       btn.disabled = disabled;
       if (!disabled && !cls.length) btn.classList.add('affordable');
       btn.innerHTML = html;
-      btn.addEventListener('click', () => {
-        if (onClick()) this.renderShop();
+      btn.addEventListener('click', async () => {
+        if (await onClick()) this.renderShop();
       });
       shop.appendChild(btn);
     };
+    const price = (v, nuggets) => (nuggets ? `💎 ${v}` : this.money(v));
 
     if (this.tab === 'upgrades') {
       for (const u of UPGRADES) {
         header(u.cat);
-        const lvl = g.data.levels[u.id] || 0;
+        const lvl = D.levels[u.id] || 0;
         const maxed = lvl >= u.max;
         const cost = upgradeCost(u, lvl);
-        const locked = u.requires && !(g.data.levels[u.requires] > 0);
+        const locked = u.requiresPlaced && !(D.bought[u.requiresPlaced] > 0);
         card({
-          disabled: maxed || locked || cost > g.data.cash,
+          disabled: maxed || locked || cost > D.cash,
           html: `
             <div class="name">${u.icon} ${t('u_' + u.id)}</div>
             <div class="desc">${t('d_' + u.id)}</div>
-            ${locked ? `<div class="req">${t('requires', { name: t('u_' + u.requires) })}</div>` : ''}
+            ${locked ? `<div class="req">${t('requires', { name: t('pl_' + u.requiresPlaced) })}</div>` : ''}
             <div class="row"><span>${t('lvl', { l: lvl, m: u.max })}</span>
-            <span class="cost">${maxed ? t('max') : '$' + cost}</span></div>`,
+            <span class="cost">${maxed ? t('max') : this.money(cost)}</span></div>`,
           onClick: () => g.buyUpgrade(u.id),
         });
+      }
+    } else if (this.tab === 'machines' || this.tab === 'legendary') {
+      const legendary = this.tab === 'legendary';
+      note(legendary ? 'legendaryNote' : 'machinesNote');
+      for (const def of PLACEABLES.filter((x) => !!x.legendary === legendary)) {
+        const cost = placeableCost(def, D.bought[def.id] || 0);
+        const have = D.inventory[def.id] || 0;
+        const placed = D.placed.filter((x) => x.type === def.id).length;
+        card({
+          disabled: def.nuggets ? D.nuggets < cost : D.cash < cost,
+          cls: legendary ? ['legendary'] : [],
+          html: `
+            <div class="name">${def.icon} ${t('pl_' + def.id)}</div>
+            <div class="desc">${t('pd_' + def.id)}</div>
+            <div class="row"><span>${t('ownedCount', { p: placed, i: have })}</span>
+            <span class="cost">${price(cost, def.nuggets)}</span></div>`,
+          onClick: () => g.buyPlaceable(def.id),
+        });
+      }
+      if (legendary) {
+        for (const w of LEGENDARY_WEAPONS) {
+          const owned = !!D.unlocks[w.id];
+          card({
+            disabled: owned || D.nuggets < w.nuggets,
+            cls: owned ? ['owned'] : ['legendary'],
+            html: `
+              <div class="name">${w.icon} ${t('u_' + w.id)}</div>
+              <div class="desc">${t('d_' + w.id)}</div>
+              <div class="row"><span></span>
+              <span class="${owned ? 'state' : 'cost'}">${owned ? t('ownedTag') : price(w.nuggets, true)}</span></div>`,
+            onClick: () => g.buyLegendaryWeapon(w.id),
+          });
+        }
       }
     } else if (this.tab === 'unlocks') {
       for (const u of UNLOCKS) {
         header(u.cat);
-        const owned = !!g.data.unlocks[u.id];
+        const owned = !!D.unlocks[u.id];
         card({
-          disabled: owned || u.cost > g.data.cash,
+          disabled: owned || u.cost > D.cash,
           cls: owned ? ['owned'] : [],
           html: `
             <div class="name">${u.icon} ${t('u_' + u.id)}</div>
             <div class="desc">${t('d_' + u.id)}</div>
             <div class="row"><span></span>
-            <span class="${owned ? 'state' : 'cost'}">${owned ? t('ownedTag') : '$' + u.cost}</span></div>`,
+            <span class="${owned ? 'state' : 'cost'}">${owned ? t('ownedTag') : this.money(u.cost)}</span></div>`,
           onClick: () => g.buyUnlock(u.id),
         });
       }
-    } else {
-      const cos = g.data.cosmetics;
+    } else if (this.tab === 'style') {
+      const cos = D.cosmetics;
       for (const c of COSMETICS) {
         header('style_' + c.slot);
         const owned = c.cost === 0 || cos.owned.includes(c.id);
@@ -363,11 +457,11 @@ export class UI {
         const colors = c.colors ?? (c.color !== undefined ? [c.color] : []);
         const swatches = colors.map((col) => `<span class="swatch" style="background:#${col.toString(16).padStart(6, '0')}"></span>`).join('');
         let state;
-        if (!owned) state = `<span class="cost">$${c.cost}</span>`;
+        if (!owned) state = `<span class="cost">${this.money(c.cost)}</span>`;
         else if (c.slot === 'decor') state = `<span class="state">${t(on ? 'decorOn' : 'decorOff')}</span>`;
         else state = `<span class="state">${t(on ? 'equipped' : 'equip')}</span>`;
         card({
-          disabled: (!owned && c.cost > g.data.cash) || (owned && on && c.slot !== 'decor'),
+          disabled: (!owned && c.cost > D.cash) || (owned && on && c.slot !== 'decor'),
           cls: on ? ['equipped'] : owned ? ['owned'] : [],
           html: `
             <div class="name">${swatches}${t('c_' + c.id)}</div>
@@ -375,13 +469,29 @@ export class UI {
           onClick: () => g.buyCosmetic(c.id),
         });
       }
+    } else {
+      // Bonus: rewarded ads only
+      note(Platform.canRewarded ? 'bonusNote' : 'bonusUnavailable');
+      const offers = [
+        { id: 'xray', icon: '🩻', vars: { s: XRAY_AD_SECONDS } },
+        { id: 'goldTruck', icon: '🚚' },
+        { id: 'cash', icon: '💰', vars: { v: this.money(g.adCashReward) } },
+      ];
+      for (const o of offers) {
+        card({
+          disabled: !Platform.canRewarded || (o.id === 'goldTruck' && g.goldTruckPending),
+          cls: ['ad-offer'],
+          html: `
+            <div class="name">${o.icon} ${t('ad_' + o.id)}</div>
+            <div class="desc">${t('adD_' + o.id, o.vars)}</div>
+            <div class="row"><span></span><span class="cost">📺 ${t('watchAd')}</span></div>`,
+          onClick: async () => {
+            const ok = await g.watchAd(o.id);
+            if (ok) this.toast('adThanks');
+            return true;
+          },
+        });
+      }
     }
-  }
-
-  markDoubled(value) {
-    const btn = $('btn-double');
-    btn.disabled = true;
-    btn.textContent = t('doubled', { v: value });
-    this.renderShop();
   }
 }

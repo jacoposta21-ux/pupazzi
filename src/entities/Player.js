@@ -135,13 +135,26 @@ export class Player {
     }
     this.camera.updateMatrixWorld();
 
-    // --- Weapons ---
-    this.weapons.update(dt, input);
+    const build = this.game.build;
+    if (build.active) {
+      // Build mode: hands are busy with the placement tablet
+      this.aimed = null;
+      this.aimingAtStuffer = false;
+      this.atTerminal = false;
+      build.update(dt, input);
+    } else {
+      // --- Weapons ---
+      this.weapons.update(dt, input);
 
-    // --- Aim / grab / throw ---
-    this.updateAim();
-    if (input.grabPressed) this.tryGrab();
-    if (input.throwPressed) this.throwOne();
+      // --- Aim / grab / throw / terminal ---
+      this.updateAim();
+      if (input.grabPressed) {
+        if (this.atTerminal && !this.aimed) this.game.openShop();
+        else this.tryGrab();
+      }
+      if (input.throwPressed) this.throwOne();
+      if (input.buildPressed) build.toggle();
+    }
 
     this.vm.update({
       dt,
@@ -197,6 +210,11 @@ export class Player {
       }
     }
     this.aimingAtStuffer = this.carried.length > 0 && this.stufferAssist() !== null;
+    // the shop terminal: close and roughly in front
+    const T = this.game.terminalPos;
+    _v.subVectors(T, this.pos).setY(0);
+    const dist = _v.length();
+    this.atTerminal = dist < 2.8 && this.forward.setY(0).normalize().dot(_v.normalize()) > 0.6;
   }
 
   tryGrab() {
@@ -211,6 +229,7 @@ export class Player {
   // Puts a plushie in the left hand. Returns false when hands are full.
   grabPlushie(p) {
     if (this.carried.length >= this.game.stats.carry) return false;
+    if (p.extractNugget()) this.game.onNuggetFound(p.pos.clone().setY(1));
     this.game.particles.burst(p.pos.clone().setY(0.5), { count: 5, color: p.def.color, speed: 1, size: 0.05 });
     p.state = 'carried';
     p.claimedBy = null;

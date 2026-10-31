@@ -19,45 +19,64 @@ export const LAYOUT = {
   door: { x: 0, z: 24, halfWidth: 3, height: 4.5 },
   stuffer: { x: -8, z: -6, w: 3, d: 3, h: 2.2 },
   belt: { startX: -9.5, endX: -17.6, z: -6, top: 0.9 },
-  // Production lines: Stuffer position + the belt that runs from it to a shipping chute in the wall.
-  lines: [
-    { x: -8, z: -6, beltStart: -9.5, beltEnd: -17.6 },
-    { x: 8, z: -6, beltStart: 9.5, beltEnd: 17.6 },
-  ],
+  // The starter production line: Stuffer + belt running west to a shipping chute in the wall.
+  mainLine: { x: -8, z: -6, out: { x: -1, z: 0 }, beltLength: 8.1 },
+  terminal: { x: 5, z: 13 },
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
 };
 
-// Plushie archetypes. hp grows with the day (see plushieHp).
+// Plushie archetypes. hp and value grow with the factory level. nugget = chance of hiding a gold nugget.
 export const PLUSHIES = {
-  teddy: { hp: 2, walk: 1.3, flee: 4.0, value: 10, scale: 1.0, color: 0xc48a55, accent: 0xf3d5b0, ears: 'round' },
-  bunny: { hp: 2, walk: 1.8, flee: 5.4, value: 16, scale: 0.92, color: 0xf6f1f6, accent: 0xf7b4c9, ears: 'long' },
-  kitty: { hp: 3, walk: 1.5, flee: 4.8, value: 24, scale: 0.95, color: 0x8f9cb3, accent: 0xf5f0e6, ears: 'pointy' },
-  golden: { hp: 5, walk: 2.2, flee: 6.6, value: 80, scale: 0.85, color: 0xffc933, accent: 0xfff0a8, ears: 'round', golden: true },
+  teddy: { hp: 2, walk: 1.3, flee: 4.0, value: 10, scale: 1.0, color: 0xc48a55, accent: 0xf3d5b0, ears: 'round', nugget: 0.06 },
+  bunny: { hp: 2, walk: 1.8, flee: 5.4, value: 16, scale: 0.92, color: 0xf6f1f6, accent: 0xf7b4c9, ears: 'long', nugget: 0.06 },
+  kitty: { hp: 3, walk: 1.5, flee: 4.8, value: 24, scale: 0.95, color: 0x8f9cb3, accent: 0xf5f0e6, ears: 'pointy', nugget: 0.08 },
+  golden: { hp: 5, walk: 2.2, flee: 6.6, value: 80, scale: 0.85, color: 0xffc933, accent: 0xfff0a8, ears: 'round', golden: true, nugget: 0.35 },
   // Armoured pup: the helmet soaks `armor` hits before the plushie takes damage.
-  knight: { hp: 2, armor: 3, walk: 1.4, flee: 4.2, value: 30, scale: 1.0, color: 0xe0a96d, accent: 0xfff3e0, ears: 'floppy', helmet: true },
+  knight: { hp: 2, armor: 3, walk: 1.4, flee: 4.2, value: 30, scale: 1.0, color: 0xe0a96d, accent: 0xfff3e0, ears: 'floppy', helmet: true, nugget: 0.12 },
   // Matryoshka bear: big and slow, splits into minis when knocked out.
-  mama: { hp: 4, walk: 1.0, flee: 3.2, value: 20, scale: 1.4, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', splitsInto: 'mini', splitCount: 3 },
-  mini: { hp: 1, walk: 1.8, flee: 5.0, value: 9, scale: 0.6, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', spawnOnly: true },
+  mama: { hp: 4, walk: 1.0, flee: 3.2, value: 20, scale: 1.4, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', splitsInto: 'mini', splitCount: 3, nugget: 0 },
+  mini: { hp: 1, walk: 1.8, flee: 5.0, value: 9, scale: 0.6, color: 0xe85d75, accent: 0xffe0e6, ears: 'round', spawnOnly: true, nugget: 0.1 },
 };
 
-export function plushieHp(type, day) {
-  return PLUSHIES[type].hp + Math.floor((day - 1) / 3);
+// ---------- Factory level: grows with lifetime earnings, drives variety, difficulty and value ----------
+export const GOAL = 1_000_000; // final objective: lifetime earnings
+const LEVEL_BASE = 150;
+const LEVEL_GROWTH = 1.875;
+export const MAX_LEVEL = 25;
+
+export function levelThreshold(level) {
+  return level <= 1 ? 0 : Math.round(LEVEL_BASE * Math.pow(LEVEL_GROWTH, level - 2));
 }
 
-export function plushieWeights(day) {
+export function levelFromEarned(total) {
+  let L = 1;
+  while (L < MAX_LEVEL && total >= levelThreshold(L + 1)) L++;
+  return L;
+}
+
+// Every level makes cans worth more, so income keeps up with exponential prices.
+export function levelValueMult(level) {
+  return Math.pow(1.22, level - 1);
+}
+
+export function plushieHp(type, level) {
+  return PLUSHIES[type].hp + Math.floor((level - 1) / 3);
+}
+
+export function plushieWeights(level) {
   return {
     teddy: 10,
-    bunny: day >= 2 ? 3 + day * 0.6 : 0,
-    kitty: day >= 4 ? 2 + day * 0.5 : 0,
-    golden: day >= 3 ? 0.5 + day * 0.06 : 0,
-    knight: day >= 3 ? 2 + day * 0.4 : 0,
-    mama: day >= 5 ? 1.5 + day * 0.3 : 0,
+    bunny: level >= 2 ? 3 + level * 0.6 : 0,
+    kitty: level >= 4 ? 2 + level * 0.5 : 0,
+    golden: level >= 3 ? 0.5 + level * 0.06 : 0,
+    knight: level >= 3 ? 2 + level * 0.4 : 0,
+    mama: level >= 5 ? 1.5 + level * 0.3 : 0,
   };
 }
 
-export function pickPlushieType(day) {
-  const w = plushieWeights(day);
+export function pickPlushieType(level) {
+  const w = plushieWeights(level);
   let total = 0;
   for (const k in w) total += w[k];
   let r = Math.random() * total;
@@ -68,48 +87,78 @@ export function pickPlushieType(day) {
   return 'teddy';
 }
 
-// Delivery plan for a day.
-export function dayPlan(day, supplyLevel) {
+// Continuous deliveries: a truck every few seconds, bigger and more frequent as the factory grows.
+export function truckPlan(level, supplyLevel) {
   return {
-    trucks: 2 + Math.floor((day - 1) / 2) + Math.floor(supplyLevel / 2),
-    perTruck: 4 + Math.floor((day - 1) / 3) + supplyLevel,
+    interval: Math.max(9, 26 - 0.8 * level - 1.5 * supplyLevel),
+    count: 4 + Math.floor(level / 2) + supplyLevel,
   };
 }
 
-export function dayQuota(day) {
-  return Math.round((40 * Math.pow(day, 1.45)) / 5) * 5;
-}
-
-export const QUOTA_BONUS = 0.3;
-export const WRAP_BONUS = 1.5; // Gift Wrapper value multiplier // fraction of the quota paid as bonus when met
+export const WRAP_BONUS = 1.5; // Gift Wrapper value multiplier
 export const MAX_PLUSHIES = 70;
+
+// ---------- Timed missions ----------
+// Each kind picks a target from the level; reward is a few seconds' worth of income.
+export const MISSIONS = [
+  { id: 'stuffAny', time: 75, count: (L) => 5 + L },
+  { id: 'stuffType', time: 90, count: (L) => 2 + Math.floor(L / 3) },
+  { id: 'ko', time: 60, count: (L) => 4 + L },
+  { id: 'ship', time: 90, count: (L) => Math.round((60 * levelValueMult(L) * (4 + L)) / 10) * 10 },
+  { id: 'koKnight', time: 90, count: () => 2, minLevel: 3 },
+  { id: 'golden', time: 120, count: () => 1, minLevel: 3 },
+];
+export const MISSION_GAP = 12; // seconds between missions
+export const MISSION_NUGGET_CHANCE = 0.25;
 
 // Upgrades are pure data: cost = base * growth^level.
 export const UPGRADES = [
-  { id: 'speed', cat: 'player', icon: '👟', max: 8, base: 40, growth: 1.6 },
-  { id: 'carry', cat: 'player', icon: '🎒', max: 7, base: 60, growth: 1.85 },
-  { id: 'damage', cat: 'blaster', icon: '💥', max: 6, base: 80, growth: 1.9 },
-  { id: 'firerate', cat: 'blaster', icon: '⚡', max: 6, base: 60, growth: 1.7 },
-  { id: 'ammo', cat: 'blaster', icon: '🫧', max: 6, base: 50, growth: 1.6 },
-  { id: 'slots', cat: 'factory', icon: '🏭', max: 5, base: 150, growth: 2.3 },
-  { id: 'process', cat: 'factory', icon: '⚙️', max: 8, base: 70, growth: 1.65 },
-  { id: 'belt', cat: 'factory', icon: '➡️', max: 8, base: 50, growth: 1.55 },
-  { id: 'value', cat: 'factory', icon: '🏷️', max: 10, base: 120, growth: 1.75 },
-  { id: 'supply', cat: 'business', icon: '🚚', max: 8, base: 100, growth: 1.85 },
-  { id: 'overtime', cat: 'business', icon: '⏰', max: 8, base: 90, growth: 1.75 },
-  { id: 'robot', cat: 'automation', icon: '🤖', max: 4, base: 250, growth: 2.2 },
-  { id: 'robotSpeed', cat: 'automation', icon: '🔋', max: 6, base: 120, growth: 1.7, requires: 'robot' },
+  { id: 'speed', cat: 'player', icon: '👟', max: 10, base: 40, growth: 1.7 },
+  { id: 'carry', cat: 'player', icon: '🎒', max: 9, base: 60, growth: 1.9 },
+  { id: 'damage', cat: 'blaster', icon: '💥', max: 8, base: 80, growth: 2.0 },
+  { id: 'firerate', cat: 'blaster', icon: '⚡', max: 8, base: 60, growth: 1.8 },
+  { id: 'ammo', cat: 'blaster', icon: '🫧', max: 8, base: 50, growth: 1.7 },
+  { id: 'slots', cat: 'factory', icon: '🏭', max: 5, base: 150, growth: 2.6 },
+  { id: 'process', cat: 'factory', icon: '⚙️', max: 10, base: 70, growth: 1.8 },
+  { id: 'belt', cat: 'factory', icon: '➡️', max: 10, base: 50, growth: 1.7 },
+  { id: 'value', cat: 'factory', icon: '🏷️', max: 25, base: 120, growth: 1.6 },
+  { id: 'supply', cat: 'business', icon: '🚚', max: 10, base: 100, growth: 1.9 },
+  { id: 'robotSpeed', cat: 'automation', icon: '🔋', max: 8, base: 150, growth: 1.8, requiresPlaced: 'dock' },
+  { id: 'turretPower', cat: 'automation', icon: '🎯', max: 8, base: 300, growth: 1.85, requiresPlaced: 'turret' },
 ];
 
-// One-time purchases: factory expansions and new weapons.
+// One-time purchases with cash: expansions, weapons and the X-ray scanner.
 export const UNLOCKS = [
-  { id: 'line2', cat: 'expansion', icon: '🏭', cost: 1500 },
   { id: 'wrapper', cat: 'expansion', icon: '🎁', cost: 900 },
   { id: 'silo', cat: 'expansion', icon: '🛢️', cost: 600 },
+  { id: 'scanner', cat: 'expansion', icon: '🩻', cost: 2500 },
   { id: 'net', cat: 'weapons', icon: '🕸️', cost: 400 },
   { id: 'confetti', cat: 'weapons', icon: '🎉', cost: 750 },
   { id: 'vacuum', cat: 'weapons', icon: '🌀', cost: 1200 },
 ];
+
+// Machines placed freely in the factory. cost grows with how many you already bought.
+// size = footprint in metres (x, z) before rotation.
+export const PLACEABLES = [
+  { id: 'dock', icon: '🤖', cost: 250, growth: 1.9, size: [1.6, 1.6] },
+  { id: 'turret', icon: '🔫', cost: 600, growth: 1.8, size: [1.2, 1.2] },
+  { id: 'catapult', icon: '🪃', cost: 450, growth: 1.7, size: [1.8, 1.8] },
+  { id: 'lure', icon: '🍭', cost: 300, growth: 1.6, size: [1.0, 1.0] },
+  { id: 'line', icon: '🏭', cost: 1500, growth: 2.4, size: [10.5, 3.2] },
+  // legendary: paid with gold nuggets
+  { id: 'megadock', icon: '🦾', nuggets: 5, size: [1.8, 1.8], legendary: true },
+  { id: 'starTurret', icon: '🌟', nuggets: 8, size: [1.4, 1.4], legendary: true },
+];
+
+export function placeableCost(def, bought) {
+  return def.nuggets ? def.nuggets : Math.round(def.cost * Math.pow(def.growth, bought));
+}
+
+// Legendary weapon bought with nuggets.
+export const LEGENDARY_WEAPONS = [{ id: 'rainbow', icon: '🌈', nuggets: 10 }];
+
+export const XRAY_AD_SECONDS = 90;
+export const GOLD_TRUCK_COUNT = 8;
 
 // Weapon tuning. The blaster's numbers come from upgrades (see computeStats).
 export const WEAPONS = {
@@ -120,6 +169,8 @@ export const WEAPONS = {
   confetti: { slot: 3, icon: '🎉', mag: 2, reload: 2.2, cooldown: 0.9, range: 7.5, cone: 0.42, damage: 2 },
   // Vacuum: hold to pull knocked-out plushies into your arms.
   vacuum: { slot: 4, icon: '🌀', range: 9, cone: 0.5, pull: 7, grabDist: 1.3 },
+  // Legendary rainbow ray: rapid beam that knocks out anything in one hit, armour included.
+  rainbow: { slot: 5, icon: '🌈', cooldown: 0.12, range: 40 },
 };
 
 // Cosmetics. slot 'decor' items toggle independently; the others are equipped one at a time.
@@ -160,27 +211,31 @@ export function computeStats(levels, unlocks = {}) {
     reloadTime: 1.2,
     slots: 1 + L('slots'),
     queueSize: unlocks.silo ? 6 : 3,
-    lines: unlocks.line2 ? 2 : 1,
     wrap: !!unlocks.wrapper,
     processTime: 2.6 * Math.pow(0.86, L('process')),
     beltSpeed: 1.3 * (1 + 0.2 * L('belt')),
     valueMult: 1 + 0.15 * L('value'),
     supply: L('supply'),
-    dayLength: 90 + 15 * L('overtime'),
-    robots: L('robot'),
     robotSpeed: 2.6 * (1 + 0.18 * L('robotSpeed')),
+    turretCooldown: 1.6 * Math.pow(0.85, L('turretPower')),
+    turretDamage: 1 + Math.floor(L('turretPower') / 2),
   };
 }
 
 export function newSave() {
   return {
-    version: 1,
-    day: 1,
+    version: 2,
     cash: 0,
+    earned: 0, // lifetime earnings: drives the factory level and the $1M goal
+    nuggets: 0,
+    won: false,
     levels: {},
     unlocks: {},
+    placed: [], // [{ type, x, z, rot }]
+    inventory: {}, // bought but not placed: { type: count }
+    bought: {}, // how many of each placeable were bought (price scaling)
     cosmetics: { owned: [], equipped: { ...DEFAULT_EQUIP }, decor: [] },
     tutorialDone: false,
-    totals: { stuffed: 0, earned: 0, knockouts: 0, bestDay: 0 },
+    totals: { stuffed: 0, knockouts: 0, nuggets: 0, missions: 0 },
   };
 }

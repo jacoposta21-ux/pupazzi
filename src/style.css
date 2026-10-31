@@ -259,3 +259,55 @@ body.touch #weapon-bar .slot { width: 40px; height: 40px; font-size: 18px; }
 .upg.equipped { border-color: var(--yellow); background: rgba(255, 210, 63, 0.15); }
 .upg .state { color: var(--mint); font-weight: 700; }
 .upg.equipped:disabled { opacity: 1; }
+
+/* ---------- Continuous mode HUD ---------- */
+.pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill.nugget { color: #ffe9a0; }
+.level-box { width: 230px; background: rgba(30, 20, 50, 0.6); border-radius: 14px; padding: 6px 10px; }
+.level-label { font-weight: 700; font-size: 15px; }
+.goal-label { font-size: 12px; opacity: 0.85; margin-top: 3px; }
+#hud-level-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--pink), var(--yellow)); transition: width 0.3s; }
+.truck-status { font-size: 17px; font-weight: 600; background: rgba(30, 20, 50, 0.6); border-radius: 999px; padding: 6px 16px; }
+#hud-xray { margin-top: 6px; color: #9df2ff; }
+.hud-top-right { flex-direction: column; align-items: flex-end; }
+#mission {
+  width: 250px; background: rgba(30, 20, 50, 0.75); border-radius: 14px; padding: 8px 12px;
+  border: 2px solid rgba(255, 210, 63, 0.4);
+}
+#mission.done { border-color: var(--mint); }
+.mission-title { font-weight: 600; font-size: 15px; margin-bottom: 5px; }
+#mission-fill { height: 100%; width: 0; background: var(--yellow); transition: width 0.2s; }
+#mission.done #mission-fill { background: var(--mint); }
+.mission-meta { display: flex; justify-content: space-between; font-size: 13px; margin-top: 4px; opacity: 0.9; }
+#tutorial { top: 70px; }
+#xray-overlay {
+  position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  background: radial-gradient(ellipse at center, rgba(80, 200, 255, 0.04) 40%, rgba(60, 160, 255, 0.35) 100%);
+  mix-blend-mode: screen;
+}
+.floater.nugget { color: #ffe9a0; font-size: 26px; }
+
+/* build bar */
+#build-bar { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+#build-items { display: flex; gap: 6px; justify-content: center; }
+#build-items .slot {
+  width: 58px; height: 58px; border-radius: 14px; background: rgba(30, 20, 50, 0.7);
+  border: 3px solid transparent; display: flex; align-items: center; justify-content: center;
+  font-size: 26px; position: relative;
+}
+#build-items .slot.active { border-color: var(--mint); transform: translateY(-4px); }
+#build-items .slot small { position: absolute; top: 1px; left: 5px; font-size: 11px; opacity: 0.7; }
+#build-items .slot b { position: absolute; bottom: 1px; right: 6px; font-size: 13px; }
+#build-items .empty { background: rgba(30, 20, 50, 0.7); padding: 8px 14px; border-radius: 12px; }
+#build-hint { margin-top: 6px; background: rgba(30, 20, 50, 0.6); padding: 4px 12px; border-radius: 10px; }
+
+/* shop terminal */
+.shop-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.shop-note { grid-column: 1 / -1; font-size: 14px; opacity: 0.85; background: rgba(255,255,255,0.06); border-radius: 10px; padding: 8px 12px; }
+.upg.legendary { border-color: rgba(255, 201, 51, 0.7); background: linear-gradient(135deg, rgba(255, 201, 51, 0.15), rgba(122, 79, 209, 0.15)); }
+.upg.ad-offer { border-color: rgba(47, 181, 138, 0.6); }
+#btn-close-shop { position: sticky; bottom: 0; }
+.btn.danger { background: #d94a4a; box-shadow: 0 5px 0 #9c2f2f; }
+.victory-emoji { font-size: 72px; animation: pulse 0.8s infinite alternate; }
+body.touch .level-box { width: 170px; }
+body.touch #mission { width: 190px; }

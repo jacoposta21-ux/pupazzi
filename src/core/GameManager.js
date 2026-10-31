@@ -1,10 +1,11 @@
-// Orchestrates the game: state machine (menu / playing / dayend), the workday timer,
-// truck schedule, economy and saving. Systems communicate through the EventBus.
+// Orchestrates the game: menu / playing state, continuous truck deliveries, economy, factory level,
+// missions, the shop terminal, build mode, nuggets & X-ray, saving. Systems talk through the EventBus.
 import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import {
-  SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, QUOTA_BONUS, UPGRADES, QUALITY,
-  computeStats, dayPlan, dayQuota, pickPlushieType, newSave, upgradeCost, UNLOCKS, COSMETICS, DEFAULT_EQUIP,
+  SAVE_KEY, SETTINGS_KEY, LAYOUT, MAX_PLUSHIES, UPGRADES, QUALITY, UNLOCKS, COSMETICS, DEFAULT_EQUIP,
+  PLACEABLES, LEGENDARY_WEAPONS, GOAL, XRAY_AD_SECONDS, GOLD_TRUCK_COUNT,
+  computeStats, truckPlan, pickPlushieType, newSave, upgradeCost, placeableCost, levelFromEarned, levelValueMult,
 } from '../data/config.js';
 import { Platform } from '../systems/Platform.js';
 import { Audio } from '../systems/Audio.js';
@@ -17,12 +18,16 @@ import { Stuffer } from '../entities/Stuffer.js';
 import { PlushieManager } from '../entities/Plushies.js';
 import { Player } from '../entities/Player.js';
 import { Truck } from '../entities/Truck.js';
-import { Robot } from '../entities/Robot.js';
+import { createMachine } from '../entities/Machines.js';
 import { Tutorial } from '../systems/Tutorial.js';
+import { Missions } from '../systems/Missions.js';
+import { BuildMode } from '../systems/BuildMode.js';
 import { UI } from '../ui/UI.js';
 import { Decor } from '../world/Decor.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
+const AUTOSAVE_EVERY = 15;
+const SHUTTER_SPEED = 6;
 
 export class GameManager {
   constructor(canvas) {
@@ -32,14 +37,20 @@ export class GameManager {
     this.shadows = true;
     this.state = 'loading';
     this.paused = false;
+    this.shopOpen = false;
     this.time = 0;
     this.bus = new EventBus();
     this.solids = [];
     this.trucks = [];
-    this.robots = [];
-    this.truckSchedule = [];
+    this.machines = [];
+    this.lines = [];
+    this.stuffers = [];
     this.data = newSave();
     this.stats = computeStats({});
+    this.level = 1;
+    this.xrayTimer = 0; // seconds of free X-ray from a rewarded ad
+    this.xrayOn = false; // scanner toggled by the player
+    this.goldTruckPending = false;
     this.settings = {
       sens: 1,
       muted: false,
@@ -67,10 +78,14 @@ export class GameManager {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
     this.clock = new THREE.Clock();
+    this.terminalPos = new THREE.Vector3(LAYOUT.terminal.x, 0, LAYOUT.terminal.z);
 
     addEventListener('resize', () => this.onResize());
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.state === 'playing') this.pause();
+      if (document.hidden && this.state === 'playing') {
+        this.pause();
+        this.persist();
+      }
     });
   }
 
@@ -87,44 +102,45 @@ export class GameManager {
     const factory = buildFactory(this.scene, this.colliders, { shadows: this.shadows });
     this.solids.push(...factory.solids);
     this.sun = factory.sun;
+    this.shutter = factory.shutter;
+    this.shutterOpen = 0;
     this.applyQuality();
     this.particles = new Particles(this.scene);
-    // Production lines: line 0 is always there, the others are bought as expansions.
-    this.lines = LAYOUT.lines.map((cfg) => {
-      const conveyor = new Conveyor(this, cfg);
-      return { conveyor, stuffer: new Stuffer(this, cfg, conveyor) };
+
+    // The starter line is fixed; more lines are placed as machines.
+    const ml = LAYOUT.mainLine;
+    const mainConveyor = new Conveyor(this, {
+      start: { x: ml.x + ml.out.x * 1.5, z: ml.z + ml.out.z * 1.5 },
+      dir: ml.out,
+      length: ml.beltLength,
+      end: 'wall',
     });
-    this.stuffers = this.lines.map((l) => l.stuffer);
-    this.stuffer = this.stuffers[0];
+    this.stuffer = new Stuffer(this, ml, mainConveyor);
+    this.addLine({ stuffer: this.stuffer, conveyor: mainConveyor });
+
     this.decor = new Decor(this);
-    this.syncLines();
     this.plushies = new PlushieManager(this);
     this.player = new Player(this);
     this.input = new Input(this);
     this.tutorial = new Tutorial(this);
+    this.missions = new Missions(this);
+    this.build = new BuildMode(this);
 
     this.bus.on('canSold', ({ value, pos }) => {
       if (this.state !== 'playing') return;
-      this.data.cash += value;
-      this.dayStats.earned += value;
-      this.dayStats.shipped += value;
-      this.ui.floater(`+$${value}`, pos);
+      this.addEarnings(value);
+      this.ui.floater(`+${this.ui.money(value)}`, pos);
       this.particles.burst(pos, { count: 6, color: 0xffd23f, speed: 1.5, size: 0.05 });
       Audio.play('cash');
-      if (!this.dayStats.quotaToastShown && this.dayStats.earned >= this.quota) {
-        this.dayStats.quotaToastShown = true;
-        this.ui.toast('quotaMet', { b: Math.round(this.quota * QUOTA_BONUS) });
-        Platform.happytime();
-      }
     });
-    this.bus.on('plushieStuffed', () => this.dayStats && this.dayStats.stuffed++);
+    this.bus.on('plushieStuffed', () => this.data.totals.stuffed++);
     this.bus.on('plushieKO', (p) => {
-      this.dayStats.knockouts++;
+      this.data.totals.knockouts++;
       this.ui.floater('KO!', p.pos.clone().setY(1.4 * p.def.scale), 'ko');
       if (p.def.splitsInto) {
         Audio.play('pop');
         this.particles.burst(p.pos.clone().setY(0.8), { count: 18, color: p.def.accent, speed: 3, size: 0.07, up: 3 });
-        this.plushies.split(p, this.data.day);
+        this.plushies.split(p, this.level);
       }
     });
     this.bus.on('truckArrived', () => this.state === 'playing' && this.ui.toast('truckHere'));
@@ -136,168 +152,89 @@ export class GameManager {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  // ---------- State transitions ----------
+  // ---------- Lines & machines ----------
 
-  resetWorld() {
-    this.plushies.clear();
-    this.player.carried.length = 0;
-    this.player.carryAnchor.clear();
-    for (const l of this.lines) {
-      l.stuffer.reset();
-      l.conveyor.flush();
+  addLine(line) {
+    this.lines.push(line);
+    this.stuffers.push(line.stuffer);
+    line.conveyor.setWrapper(this.stats.wrap);
+    this.applyCosmetics?.();
+  }
+
+  removeLine(line) {
+    this.lines = this.lines.filter((l) => l !== line);
+    this.stuffers = this.stuffers.filter((s) => s !== line.stuffer);
+  }
+
+  get lures() {
+    return this.machines.filter((m) => m.type === 'lure');
+  }
+
+  placeMachine(type, x, z, rot, fromSave = false) {
+    const m = createMachine(this, type, x, z, rot);
+    this.machines.push(m);
+    if (!fromSave) {
+      this.data.inventory[type]--;
+      this.data.placed.push({ type, x, z, rot });
+      this.particles.burst(new THREE.Vector3(x, 0.5, z), { count: 16, color: 0x5fe0b7, speed: 2.5, size: 0.06, up: 2 });
+      Audio.play('place');
+      this.persist();
     }
-    for (const tr of this.trucks) tr.dispose();
-    this.trucks = [];
-    this.truckSchedule = [];
-    this.disposeRobots();
-    this.tutorial?.stop();
-    this.particles.clear();
-    this.ui.clearFloaters();
-  }
-
-  toMenu() {
-    if (this.state === 'playing') Platform.gameplayStop();
-    this.state = 'menu';
-    this.paused = false;
-    this.input?.exitLock();
-    this.resetWorld();
-    this.player.setViewmodelVisible(false);
-    this.save = Platform.load(SAVE_KEY);
-    // show the player's own factory (lines, paint, decorations) behind the menu
-    this.data = this.mergeSave(this.save ?? {});
-    this.stats = computeStats(this.data.levels, this.data.unlocks);
-    this.syncLines();
     this.applyCosmetics();
-    // decorative plushies wandering around behind the menu
-    for (let i = 0; i < 10; i++) this.plushies.spawnWandering(pickPlushieType(3), 1);
-    this.ui.showMenu(this.save);
-    Audio.setMusicMood({ calm: true, duck: 1 });
+    return m;
   }
 
-  // Merge onto a fresh save so older saves gain any new fields.
-  mergeSave(save = {}) {
-    const fresh = newSave();
-    return {
-      ...fresh,
-      ...save,
-      levels: { ...save.levels },
-      unlocks: { ...save.unlocks },
-      totals: { ...fresh.totals, ...save.totals },
-      cosmetics: {
-        owned: [...(save.cosmetics?.owned ?? [])],
-        equipped: { ...DEFAULT_EQUIP, ...save.cosmetics?.equipped },
-        decor: [...(save.cosmetics?.decor ?? [])],
-      },
-    };
+  pickUpMachine(m) {
+    m.dispose();
+    this.machines = this.machines.filter((x) => x !== m);
+    const i = this.data.placed.findIndex((p) => p.type === m.type && p.x === m.pos.x && p.z === m.pos.z && p.rot === m.rot);
+    if (i >= 0) this.data.placed.splice(i, 1);
+    this.data.inventory[m.type] = (this.data.inventory[m.type] || 0) + 1;
+    Audio.play('grab');
+    this.persist();
   }
 
-  newGame() {
-    this.data = newSave();
-    this.resetWorld();
-    this.startDay();
+  clearMachines() {
+    for (const m of this.machines) m.dispose();
+    this.machines = [];
   }
 
-  continueGame() {
-    this.data = this.mergeSave(this.save);
-    this.resetWorld();
-    this.startDay();
-  }
+  // ---------- Economy ----------
 
-  startDay() {
-    this.stats = computeStats(this.data.levels, this.data.unlocks);
-    this.syncLines();
-    this.applyCosmetics();
-    this.quota = dayQuota(this.data.day);
-    this.timeLeft = this.stats.dayLength;
-    this.dayTime = 0;
-    this.lastTick = 11;
-    this.dayStats = { stuffed: 0, earned: 0, shipped: 0, knockouts: 0, doubled: false, quotaToastShown: false };
-
-    const plan = dayPlan(this.data.day, this.stats.supply);
-    const interval = Math.max(8, (this.stats.dayLength - 25) / plan.trucks);
-    this.truckSchedule = [];
-    for (let i = 0; i < plan.trucks; i++) this.truckSchedule.push({ at: 3 + i * interval, count: plan.perTruck });
-
-    this.trucksSpawned = 0;
-    this.syncRobots();
-    this.player.respawn();
-    this.player.refill();
-    this.ui.shownCash = this.data.cash;
-    Audio.setMusicMood({ calm: false, duck: 1 });
-    if (!this.settings.tutorialSeen && this.data.day === 1) this.tutorial.start();
-    this.player.setViewmodelVisible(true);
-    this.state = 'playing';
-    this.ui.showGameplay();
-    Platform.gameplayStart();
-    if (this.isTouch) this.paused = false;
-    else {
-      this.paused = !this.input.locked;
-      this.input.requestLock();
-      this.ui.showPause(this.paused);
+  // Every dollar earned counts towards the factory level and the $1M goal.
+  addEarnings(v) {
+    this.data.cash += v;
+    this.data.earned += v;
+    const L = levelFromEarned(this.data.earned);
+    if (L > this.level) {
+      this.level = L;
+      this.ui.toast('levelUp', { n: L });
+      Audio.play('fanfare');
+      this.particles.burst(this.player.pos.clone().setY(2), { count: 30, color: 0xffd23f, speed: 3, size: 0.06, up: 3 });
+    }
+    if (!this.data.won && this.data.earned >= GOAL) {
+      this.data.won = true;
+      this.persist();
+      this.showVictory();
     }
   }
 
-  endDay() {
-    this.state = 'dayend';
-    Platform.gameplayStop();
-    this.input.exitLock();
-    this.tutorial.stop();
-    this.disposeRobots();
-    Audio.setMusicMood({ calm: true, duck: 1 });
-
-    let flushed = 0;
-    for (const l of this.lines) flushed += l.stuffer.flush() + l.conveyor.flush();
-    const ds = this.dayStats;
-    ds.earned += flushed;
-    const quotaMet = ds.earned >= this.quota;
-    const bonus = quotaMet ? Math.round(this.quota * QUOTA_BONUS) : 0;
-    this.data.cash += flushed + bonus;
-    const T = this.data.totals;
-    T.stuffed += ds.stuffed;
-    T.earned += ds.earned + bonus;
-    T.knockouts = (T.knockouts || 0) + ds.knockouts;
-    const record = ds.earned > (T.bestDay || 0);
-    if (record) T.bestDay = ds.earned;
-    Audio.play(quotaMet ? 'fanfare' : 'bell');
-
-    // Trucks that didn't make it today are cancelled; plushies still in the factory stay for tomorrow.
-    for (const tr of this.trucks) tr.dispose();
-    this.trucks = [];
-    this.truckSchedule = [];
-    this.player.dropAll();
-
-    const summary = {
-      day: this.data.day,
-      stuffed: ds.stuffed,
-      knockouts: ds.knockouts,
-      shipped: ds.shipped,
-      flushed,
-      earned: ds.earned,
-      quota: this.quota,
-      quotaMet,
-      bonus,
-      record: record && this.data.day > 1,
-      canDouble: Platform.canRewarded && ds.shipped + flushed > 0,
-    };
-    this.lastDayValue = ds.shipped + flushed;
-    this.data.day++;
-    this.persist();
-    this.ui.showDayEnd(summary);
+  addNuggets(n) {
+    this.data.nuggets += n;
+    this.data.totals.nuggets = (this.data.totals.nuggets || 0) + n;
   }
 
-  async nextDay() {
-    if (this.data.day > 2) await Platform.ad('midgame');
-    this.startDay();
+  onNuggetFound(pos) {
+    this.addNuggets(1);
+    this.ui.toast('nuggetFound');
+    this.ui.floater('💎 +1', pos, 'nugget');
+    this.particles.burst(pos, { count: 20, color: 0xffd23f, speed: 2.5, size: 0.06, up: 2.5 });
+    Audio.play('nugget');
+    this.persist();
   }
 
-  async doubleEarnings() {
-    if (this.dayStats.doubled) return;
-    const ok = await Platform.ad('rewarded');
-    if (!ok) return;
-    this.dayStats.doubled = true;
-    this.data.cash += this.lastDayValue;
-    this.persist();
-    this.ui.markDoubled(this.lastDayValue);
+  get xrayActive() {
+    return this.xrayTimer > 0 || (this.xrayOn && !!this.data.unlocks.scanner);
   }
 
   buyUpgrade(id) {
@@ -308,7 +245,7 @@ export class GameManager {
     if (this.data.cash < cost) return false;
     this.data.cash -= cost;
     this.data.levels[id] = lvl + 1;
-    this.stats = computeStats(this.data.levels, this.data.unlocks);
+    this.refreshStats();
     Audio.play('buy');
     this.persist();
     return true;
@@ -319,9 +256,36 @@ export class GameManager {
     if (this.data.unlocks[id] || this.data.cash < u.cost) return false;
     this.data.cash -= u.cost;
     this.data.unlocks[id] = true;
-    this.stats = computeStats(this.data.levels, this.data.unlocks);
-    this.syncLines();
+    this.refreshStats();
     Audio.play('fanfare');
+    this.persist();
+    return true;
+  }
+
+  buyLegendaryWeapon(id) {
+    const w = LEGENDARY_WEAPONS.find((x) => x.id === id);
+    if (this.data.unlocks[id] || this.data.nuggets < w.nuggets) return false;
+    this.data.nuggets -= w.nuggets;
+    this.data.unlocks[id] = true;
+    Audio.play('fanfare');
+    this.persist();
+    return true;
+  }
+
+  // Buying a machine puts it in the inventory; it's placed in build mode.
+  buyPlaceable(id) {
+    const def = PLACEABLES.find((x) => x.id === id);
+    const cost = placeableCost(def, this.data.bought[id] || 0);
+    if (def.nuggets) {
+      if (this.data.nuggets < cost) return false;
+      this.data.nuggets -= cost;
+    } else {
+      if (this.data.cash < cost) return false;
+      this.data.cash -= cost;
+    }
+    this.data.bought[id] = (this.data.bought[id] || 0) + 1;
+    this.data.inventory[id] = (this.data.inventory[id] || 0) + 1;
+    Audio.play('buy');
     this.persist();
     return true;
   }
@@ -352,7 +316,28 @@ export class GameManager {
     return true;
   }
 
+  // Rewarded ads (the only ads in the game).
+  async watchAd(kind) {
+    const ok = await Platform.ad('rewarded');
+    if (!ok) return false;
+    if (kind === 'xray') this.xrayTimer = XRAY_AD_SECONDS;
+    else if (kind === 'goldTruck') this.goldTruckPending = true;
+    else if (kind === 'cash') this.addEarnings(this.adCashReward);
+    this.persist();
+    return true;
+  }
+
+  get adCashReward() {
+    return Math.round((levelValueMult(this.level) * 25 * (6 + this.level)) / 10) * 10;
+  }
+
+  refreshStats() {
+    this.stats = computeStats(this.data.levels, this.data.unlocks);
+    for (const l of this.lines) l.conveyor.setWrapper(this.stats.wrap);
+  }
+
   applyCosmetics() {
+    if (!this.player) return;
     const cos = this.data.cosmetics ?? newSave().cosmetics;
     const find = (id) => COSMETICS.find((c) => c.id === id);
     const gloves = find(cos.equipped.gloves) ?? find(DEFAULT_EQUIP.gloves);
@@ -364,13 +349,146 @@ export class GameManager {
     this.decor.apply(cos.decor);
   }
 
-  syncLines() {
-    const n = this.stats.lines;
-    this.lines.forEach((l, i) => {
-      l.stuffer.setEnabled(i < n);
-      l.conveyor.setEnabled(i < n);
-      l.conveyor.setWrapper(this.stats.wrap);
-    });
+  // ---------- State ----------
+
+  resetWorld() {
+    this.build?.exit();
+    this.plushies.clear();
+    this.player.carried.length = 0;
+    this.player.carryAnchor.clear();
+    this.clearMachines();
+    for (const l of this.lines) {
+      l.stuffer.reset();
+      l.conveyor.flush();
+    }
+    for (const tr of this.trucks) tr.dispose();
+    this.trucks = [];
+    this.tutorial?.stop();
+    this.missions?.reset();
+    this.particles.clear();
+    this.ui.clearFloaters();
+    this.xrayTimer = 0;
+    this.xrayOn = false;
+    this.goldTruckPending = false;
+  }
+
+  // Builds the saved factory: machines, cosmetics, stats.
+  loadWorld() {
+    this.refreshStats();
+    this.level = levelFromEarned(this.data.earned);
+    for (const p of this.data.placed) this.placeMachine(p.type, p.x, p.z, p.rot, true);
+    this.applyCosmetics();
+  }
+
+  toMenu() {
+    if (this.state === 'playing') {
+      Platform.gameplayStop();
+      this.persist();
+    }
+    this.state = 'menu';
+    this.paused = false;
+    this.shopOpen = false;
+    this.input?.exitLock();
+    this.resetWorld();
+    this.player.setViewmodelVisible(false);
+    this.save = Platform.load(SAVE_KEY);
+    // show the player's own factory behind the menu
+    this.data = this.mergeSave(this.save ?? {});
+    this.loadWorld();
+    for (let i = 0; i < 10; i++) this.plushies.spawnWandering(pickPlushieType(Math.max(3, this.level)), 1);
+    this.ui.showMenu(this.save);
+    Audio.setMusicMood({ calm: true, duck: 1 });
+  }
+
+  // Merge onto a fresh save so older saves gain any new fields (v1 "day" saves included).
+  mergeSave(save = {}) {
+    const fresh = newSave();
+    const data = {
+      ...fresh,
+      ...save,
+      levels: { ...save.levels },
+      unlocks: { ...save.unlocks },
+      placed: [...(save.placed ?? [])],
+      inventory: { ...save.inventory },
+      bought: { ...save.bought },
+      totals: { ...fresh.totals, ...save.totals },
+      cosmetics: {
+        owned: [...(save.cosmetics?.owned ?? [])],
+        equipped: { ...DEFAULT_EQUIP, ...save.cosmetics?.equipped },
+        decor: [...(save.cosmetics?.decor ?? [])],
+      },
+    };
+    if (!save.version || save.version < 2) {
+      // v1: the second line was an unlock, robots were an upgrade level
+      data.earned = save.totals?.earned ?? data.cash;
+      if (data.unlocks.line2) data.inventory.line = (data.inventory.line || 0) + 1;
+      if (data.levels.robot) data.inventory.dock = (data.inventory.dock || 0) + data.levels.robot;
+      delete data.unlocks.line2;
+      delete data.levels.robot;
+      delete data.levels.overtime;
+      delete data.day;
+      data.version = 2;
+    }
+    return data;
+  }
+
+  newGame() {
+    this.data = newSave();
+    this.resetWorld();
+    this.loadWorld();
+    this.startPlaying();
+  }
+
+  continueGame() {
+    // the menu already built the saved factory
+    this.plushies.clear();
+    this.startPlaying();
+  }
+
+  startPlaying() {
+    this.refreshStats();
+    this.level = levelFromEarned(this.data.earned);
+    this.nextTruck = 3;
+    this.autosave = AUTOSAVE_EVERY;
+    this.player.respawn();
+    this.player.refill();
+    this.ui.shownCash = this.data.cash;
+    Audio.setMusicMood({ calm: false, duck: 1 });
+    if (!this.settings.tutorialSeen) this.tutorial.start();
+    this.player.setViewmodelVisible(true);
+    this.state = 'playing';
+    this.ui.showGameplay();
+    Platform.gameplayStart();
+    if (this.isTouch) this.paused = false;
+    else {
+      this.paused = !this.input.locked;
+      this.input.requestLock();
+      this.ui.showPause(this.paused);
+    }
+  }
+
+  // ---------- Shop terminal ----------
+
+  openShop() {
+    if (this.shopOpen) return;
+    this.shopOpen = true;
+    this.paused = true;
+    this.input.exitLock();
+    this.ui.showShop(true);
+    Audio.play('swap');
+    Audio.setMusicMood({ duck: 0.6 });
+    this.bus.emit('shopOpened');
+  }
+
+  closeShop() {
+    if (!this.shopOpen) return;
+    this.shopOpen = false;
+    this.ui.showShop(false);
+    this.persist();
+    Audio.setMusicMood({ duck: 1 });
+    // jump straight into placing anything just bought
+    if (this.build.inventoryTypes.length && !this.build.active) this.build.enter();
+    this.resume();
   }
 
   onTutorialDone() {
@@ -380,15 +498,20 @@ export class GameManager {
     this.saveSettings();
   }
 
-  syncRobots() {
-    this.disposeRobots();
-    for (let i = 0; i < this.stats.robots; i++) this.robots.push(new Robot(this, i));
+  showVictory() {
+    this.paused = true;
+    this.input.exitLock();
+    Audio.play('fanfare');
+    Platform.happytime();
+    this.ui.showVictory();
   }
 
-  disposeRobots() {
-    for (const r of this.robots) r.dispose();
-    this.robots = [];
+  closeVictory() {
+    this.ui.hideVictory();
+    this.resume();
   }
+
+  // ---------- Settings ----------
 
   setQuality(q) {
     this.settings.quality = q;
@@ -425,12 +548,12 @@ export class GameManager {
       this.setQuality(order[i - 1]);
       this.ui.refreshSettings();
       this.ui.toast('perfLowered');
-      // give the new setting a chance to prove itself too
       if (i - 1 > 0) Object.assign(p, { frames: 0, time: 0, checked: false });
     }
   }
 
   persist() {
+    if (this.state === 'menu' && !this.save) return; // nothing to save before the first game
     Platform.save(SAVE_KEY, this.data);
   }
 
@@ -439,7 +562,7 @@ export class GameManager {
   }
 
   pause() {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.shopOpen) return;
     this.paused = true;
     Audio.setMusicMood({ duck: 0.4 });
     this.input.exitLock();
@@ -452,11 +575,15 @@ export class GameManager {
       this.paused = false;
       this.ui.showPause(false);
       Audio.setMusicMood({ duck: 1 });
-    } else this.input.requestLock();
+    } else {
+      this.input.requestLock();
+      // if the browser refuses the lock (no user gesture), show the click-to-play screen
+      if (!this.input.locked) this.ui.showPause(true);
+    }
   }
 
   onLockChange(locked) {
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || this.shopOpen || this.ui.victoryOpen) return;
     this.paused = !locked;
     this.ui.showPause(!locked);
     Audio.setMusicMood({ duck: locked ? 1 : 0.4 });
@@ -483,36 +610,49 @@ export class GameManager {
     this.input.endFrame();
   }
 
+  plushieCtx(withPlayer) {
+    return {
+      player: withPlayer ? this.player : null,
+      colliders: this.colliders,
+      stuffers: this.stuffers,
+      lures: this.lures,
+      time: this.time,
+      particles: this.particles,
+      xray: withPlayer && this.xrayActive,
+    };
+  }
+
   updateMenu(dt) {
     const a = this.time * 0.08;
     this.camera.position.set(Math.sin(a) * 13, 6.5, 6 + Math.cos(a) * 13);
     this.camera.lookAt(-2, 1, 2);
-    this.plushies.update(dt, { player: null, colliders: this.colliders, stuffers: this.stuffers, time: this.time, particles: this.particles });
+    this.plushies.update(dt, this.plushieCtx(false));
     this.updateLines(dt);
   }
 
   updatePlaying(dt) {
-    // During the tutorial the clock (and further trucks) wait for the player.
-    const hold = this.tutorial.holdsClock;
-    if (!hold || this.trucksSpawned === 0) this.dayTime += dt;
-    if (!hold) this.timeLeft -= dt;
     this.tutorial.update(dt);
+    this.missions.update(dt);
+    if (this.xrayTimer > 0) this.xrayTimer = Math.max(0, this.xrayTimer - dt);
+    if (this.input.xrayPressed) this.toggleXray();
 
-    while (this.truckSchedule.length && this.dayTime >= this.truckSchedule[0].at) {
-      const { count } = this.truckSchedule.shift();
-      this.trucksSpawned++;
-      this.trucks.push(new Truck(this, count, (from) => this.unloadPlushie(from)));
+    // Continuous deliveries: one truck at a time; the next one is scheduled once it has left.
+    const busy = this.trucks.some((t) => t.state !== 'leaving' && t.state !== 'done');
+    const full = this.plushies.count >= MAX_PLUSHIES;
+    if (!busy && !full && (!this.tutorial.active || this.tutorial.step === 'wait')) this.nextTruck -= dt;
+    if (this.goldTruckPending && !busy) this.nextTruck = Math.min(this.nextTruck, 0);
+    if (this.nextTruck <= 0 && !busy) {
+      const plan = truckPlan(this.level, this.stats.supply);
+      const golden = this.goldTruckPending;
+      this.goldTruckPending = false;
+      const count = golden ? GOLD_TRUCK_COUNT : this.tutorial.active ? 4 : plan.count;
+      this.trucks.push(new Truck(this, count, (from, g) => this.unloadPlushie(from, g), { golden }));
+      this.nextTruck = plan.interval;
     }
 
     this.player.update(dt, this.input);
-    this.plushies.update(dt, {
-      player: this.player,
-      colliders: this.colliders,
-      stuffers: this.stuffers,
-      time: this.time,
-      particles: this.particles,
-    });
-    for (const r of this.robots) r.update(dt);
+    this.plushies.update(dt, this.plushieCtx(true));
+    for (const m of this.machines) m.update(dt);
     this.updateLines(dt);
     this.decor.update(dt);
     for (const tr of this.trucks) tr.update(dt);
@@ -520,15 +660,33 @@ export class GameManager {
       if (tr.state === 'done') tr.dispose();
       return tr.state !== 'done';
     });
+    this.updateShutter(dt);
 
-    const sec = Math.ceil(this.timeLeft);
-    if (sec <= 10 && sec < this.lastTick && sec > 0) {
-      if (this.lastTick === 11) this.ui.toast('lastSeconds');
-      this.lastTick = sec;
-      Audio.play('tick');
+    this.autosave -= dt;
+    if (this.autosave <= 0) {
+      this.autosave = AUTOSAVE_EVERY;
+      this.persist();
     }
     this.ui.updateHud();
-    if (this.timeLeft <= 0) this.endDay();
+  }
+
+  toggleXray() {
+    if (!this.data.unlocks.scanner) {
+      this.ui.toast(this.xrayTimer > 0 ? 'xrayAdActive' : 'xrayNeedScanner');
+      return;
+    }
+    this.xrayOn = !this.xrayOn;
+    Audio.play(this.xrayOn ? 'xrayOn' : 'click');
+  }
+
+  // The shutter is open while a truck is pulling in or unloading.
+  updateShutter(dt) {
+    const want = this.trucks.some((t) => t.state === 'unloading' || (t.state === 'arriving' && t.mesh.position.x > -25)) ? 1 : 0;
+    const prev = this.shutterOpen;
+    this.shutterOpen += Math.sign(want - this.shutterOpen) * Math.min(Math.abs(want - this.shutterOpen), dt * (SHUTTER_SPEED / LAYOUT.door.height));
+    if ((prev === 0 && this.shutterOpen > 0) || (prev === 1 && this.shutterOpen < 1)) Audio.play('shutter');
+    const D = LAYOUT.door;
+    this.shutter.position.y = D.height / 2 + this.shutterOpen * (D.height - 0.3);
   }
 
   updateLines(dt) {
@@ -538,11 +696,11 @@ export class GameManager {
     }
   }
 
-  unloadPlushie(from) {
+  unloadPlushie(from, golden) {
     if (this.plushies.count >= MAX_PLUSHIES) return;
     // the tutorial truck brings only teddies
-    const type = this.tutorial.active ? 'teddy' : pickPlushieType(this.data.day);
-    const p = this.plushies.spawn(type, this.data.day);
+    const type = golden ? 'golden' : this.tutorial.active ? 'teddy' : pickPlushieType(this.level);
+    const p = this.plushies.spawn(type, this.level);
     const D = LAYOUT.door;
     const to = new THREE.Vector3(D.x + rand(-D.halfWidth + 0.8, D.halfWidth - 0.8), 0, LAYOUT.floor.maxZ - rand(2.5, 5));
     p.startHop(from, to);

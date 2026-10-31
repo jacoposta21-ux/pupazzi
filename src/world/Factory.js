@@ -1,7 +1,7 @@
 // Builds the static factory: floor, walls with the loading door, props, lights and signs.
 import * as THREE from 'three';
 import { LAYOUT } from '../data/config.js';
-import { floorTexture, asphaltTexture, wallTexture, hazardTexture, signTexture } from './Textures.js';
+import { floorTexture, asphaltTexture, wallTexture, hazardTexture, signTexture, shutterTexture } from './Textures.js';
 
 export function buildFactory(scene, colliders, { shadows }) {
   const solids = [];
@@ -148,5 +148,46 @@ export function buildFactory(scene, colliders, { shadows }) {
   sign('STUFFED CO.', '#ff6b8b', 8, 2, 0, 5.6, F.minZ + 0.01, 0);
   sign('UNLOADING', '#2fb58a', 4, 1, D.x, 5.2, F.maxZ - 0.01, Math.PI);
 
-  return { solids, sun };
+  // Roll-up shutter on the loading door: opens for deliveries, closes when the truck leaves.
+  const shutter = new THREE.Mesh(
+    new THREE.BoxGeometry(D.halfWidth * 2, D.height, 0.12),
+    new THREE.MeshStandardMaterial({ map: shutterTexture(), roughness: 0.6, metalness: 0.3 }),
+  );
+  shutter.position.set(D.x, D.height / 2, F.maxZ + T / 2);
+  shutter.castShadow = shadows;
+  scene.add(shutter);
+
+  // Shop terminal: a chunky kiosk with a glowing screen, facing the middle of the factory.
+  const term = new THREE.Group();
+  term.position.set(LAYOUT.terminal.x, 0, LAYOUT.terminal.z);
+  scene.add(term);
+  const kioskMat = new THREE.MeshStandardMaterial({ color: 0x2a2140, roughness: 0.5 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 0.8), kioskMat);
+  base.position.y = 0.55;
+  base.castShadow = shadows;
+  term.add(base);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.25), new THREE.MeshStandardMaterial({ color: 0xff6b8b, roughness: 0.5 }));
+  head.position.set(0, 1.5, -0.1);
+  head.rotation.x = -0.25;
+  head.castShadow = shadows;
+  term.add(head);
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.0, 0.7),
+    new THREE.MeshBasicMaterial({ map: signTexture('SHOP', '#2fb58a', '#fff', 512, 300), toneMapped: false }),
+  );
+  screen.position.set(0, 1.52, 0.04);
+  screen.rotation.x = -0.25;
+  term.add(screen);
+  const topMat = new THREE.MeshBasicMaterial({ map: signTexture('TERMINAL', '#2a2140'), toneMapped: false });
+  for (const back of [false, true]) {
+    const topSign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), topMat);
+    topSign.position.set(0, 2.25, back ? -0.11 : -0.09);
+    if (back) topSign.rotation.y = Math.PI;
+    term.add(topSign);
+  }
+  term.lookAt(LAYOUT.playerSpawn.x, 0, LAYOUT.playerSpawn.z);
+  solids.push(base, head);
+  colliders.add(LAYOUT.terminal.x - 0.6, LAYOUT.terminal.x + 0.6, LAYOUT.terminal.z - 0.6, LAYOUT.terminal.z + 0.6, 2);
+
+  return { solids, sun, shutter, terminalScreen: screen };
 }

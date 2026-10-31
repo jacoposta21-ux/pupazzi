@@ -1,5 +1,5 @@
 // First-day guided tutorial: a hint banner plus a bouncing 3D arrow over the current target.
-// The workday clock is frozen until the player has stuffed and shipped their first plushie.
+// It ends by sending the player to the shop terminal.
 import * as THREE from 'three';
 import { LAYOUT } from '../data/config.js';
 import { Audio } from './Audio.js';
@@ -13,6 +13,8 @@ export class Tutorial {
     this.active = false;
     this.step = null;
     this.timer = 0;
+    this.shopSeen = false;
+    game.bus.on('shopOpened', () => (this.shopSeen = true));
 
     const mat = new THREE.MeshBasicMaterial({ color: 0xff6b8b, depthTest: false, transparent: true });
     const ring = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true });
@@ -67,18 +69,18 @@ export class Tutorial {
       },
       throw: {
         target: () => g.stuffer.hopperCenter,
-        done: () => g.dayStats.stuffed > 0,
+        done: () => this.stuffed > 0,
         back: () => P.carried.length === 0 && !list.some((p) => p.state === 'thrown') && 'shoot',
         next: 'ship',
       },
       ship: {
         target: () => CHUTE,
-        done: () => g.dayStats.shipped > 0 || this.timer > 8,
-        next: 'quota',
+        done: () => this.timer > 6,
+        next: 'terminal',
       },
-      quota: {
-        target: () => null,
-        done: () => this.timer > 5,
+      terminal: {
+        target: () => g.terminalPos.clone().setY(1.2),
+        done: () => this.shopSeen,
         next: null,
       },
     };
@@ -86,6 +88,10 @@ export class Tutorial {
 
   start() {
     this.active = true;
+    this.stuffed = 0;
+    this.shopSeen = false;
+    this.unsub?.();
+    this.unsub = this.game.bus.on('plushieStuffed', () => this.stuffed++);
     this.go('wait');
   }
 
@@ -100,11 +106,6 @@ export class Tutorial {
     this.timer = 0;
     this.game.ui.tutorial(step);
     if (step !== 'wait') Audio.play('tutorial');
-  }
-
-  // True while the day clock should stay frozen.
-  get holdsClock() {
-    return this.active && this.step !== 'ship' && this.step !== 'quota';
   }
 
   update(dt) {
