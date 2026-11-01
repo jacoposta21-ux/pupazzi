@@ -125,7 +125,8 @@ export function buildFactory(scene, colliders, { shadows }) {
   const crateMat = new THREE.MeshStandardMaterial({ color: 0xc8955a, roughness: 0.9 });
   const crateDark = new THREE.MeshStandardMaterial({ color: 0xa8743f, roughness: 0.9 });
   const crates = [
-    [15.5, 21, 1.4], [15.5, 19.4, 1.4], [15.6, 21, 1.4, 1.4], [-15.5, 21.2, 1.2], [-14.1, 21.4, 1.0],
+    // (the back corners hold the shop terminal and the arena console)
+    [-15.5, -12, 1.4], [-13.9, -12.5, 1.1], [-15.6, -12, 1.0, 1.4], [-16.3, -10.4, 1.0],
     [16, -11.5, 1.4], [14.5, -12.2, 1.1], [16.2, -11.5, 1.0, 1.4], [6, -12.6, 1.2], [-2, -12.8, 0.9],
   ];
   for (const [x, z, s, y0 = 0] of crates) {

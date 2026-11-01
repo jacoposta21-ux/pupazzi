@@ -28,9 +28,10 @@ export const LAYOUT = {
     stuffer: { type: 'stuffer', x: -8, z: -6, rot: 2 },
     belts: [-10, -11, -12, -13, -14, -15].map((x) => ({ x, z: -6, d: 2 })),
   },
-  terminal: { x: 5, z: 13 },
+  // shop terminal and arena console sit in the two back corners, next to the unloading door
+  terminal: { x: 16.2, z: 22.2 },
   // Arcade console that starts the arena mini-game
-  console: { x: -5, z: 13 },
+  console: { x: -16.2, z: 22.2 },
   truckLaneZ: 30,
   playerSpawn: { x: 0, z: 10 },
 };

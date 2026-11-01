@@ -790,7 +790,9 @@ export class GameManager {
     this.ui.hideArenaOver();
     this.closeArenaWorld();
     this.loadWorld();
-    this.player.respawn({ x: LAYOUT.console.x + 1, z: LAYOUT.console.z - 2.5 }, Math.PI * 0.15);
+    // standing in front of the console, looking into the factory
+    const C = LAYOUT.console;
+    this.player.respawn({ x: C.x + 2, z: C.z - 2 }, Math.atan2(-(0 - (C.x + 2)), -(5 - (C.z - 2))));
     this.player.refill();
     this.persist();
     if (!this.settings.tutorialSeen) this.tutorial.start();
