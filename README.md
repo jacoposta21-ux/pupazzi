@@ -28,7 +28,7 @@ Si gioca in **partita continua**, senza giornate, con salvataggio automatico. I 
 
 ## Modalità Arena
 
-Un minigioco che si avvia dalla **console arcade** in fabbrica (E davanti alla console). La fabbrica viene messa da parte e si gioca su un prato aperto con l'**Imbottitrice da difendere** al centro.
+Un minigioco che si avvia dalla **console arcade** nell'angolo in fondo a sinistra della fabbrica (il terminale del negozio è nell'angolo opposto) (E davanti alla console). La fabbrica viene messa da parte e si gioca su un prato aperto con l'**Imbottitrice da difendere** al centro.
 
 - I pupazzi arrivano a **round** saltando dentro dai **4 portali**, uno per lato, e attaccano l'Imbottitrice. Quando l'Imbottitrice arriva a 0 di vita la partita finisce.
 - I pupazzi colpiti fino al KO **scoppiano in una nuvola di cotone** e danno **monete dell'arena** (🪙), più un bonus a fine round.
