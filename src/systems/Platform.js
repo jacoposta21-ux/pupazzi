@@ -1,6 +1,12 @@
-// Wrapper around the CrazyGames HTML5 SDK v3. Everything degrades gracefully when the SDK
-// is not available (local dev, other portals): ads resolve to false, saves use localStorage.
+// Portal SDK wrapper. The build picks the portal (VITE_PLATFORM):
+//  - default: CrazyGames HTML5 SDK v3
+//  - 'playgama': Playgama Bridge (npm run build:playgama)
+// Everything degrades gracefully when no SDK is available (local dev, other portals):
+// ads resolve to false, saves use localStorage.
+import { createPlaygama } from './PlaygamaPlatform.js';
+
 const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js';
+const PORTAL = import.meta.env.VITE_PLATFORM || 'crazygames';
 
 let sdk = null;
 
@@ -23,7 +29,7 @@ function safe(fn) {
   }
 }
 
-export const Platform = {
+const CrazyPlatform = {
   env: 'none',
   adblock: false,
   onAdStart: null,
@@ -101,3 +107,5 @@ export const Platform = {
     }
   },
 };
+
+export const Platform = PORTAL === 'playgama' ? createPlaygama(loadScript, safe) : CrazyPlatform;

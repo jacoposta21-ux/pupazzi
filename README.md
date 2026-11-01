@@ -63,6 +63,13 @@ L'SDK v3 di CrazyGames viene caricato a runtime da `src/systems/Platform.js` e g
 `loadingStart/Stop`, `gameplayStart/Stop`, `happytime` (missione completata, vittoria), annunci `rewarded` facoltativi (nascosti se c'è un adblock), un annuncio `midgame` ogni 7 round dell'Arena e i salvataggi in cloud tramite `SDK.data`.
 Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in `localStorage`.
 
+## Pubblicazione su Playgama
+
+1. Esegui `npm run build:playgama` (output in `dist-playgama/`).
+2. Crea uno zip del contenuto di `dist-playgama/` e caricalo su Playgama.
+
+Questa build usa il **Playgama Bridge SDK** (caricato dal CDN `bridge.playgama.com`, che scarica solo l'adattatore del portale su cui gira) al posto dell'SDK di CrazyGames: `game_ready`, `gameplay_started/stopped`, video con premio (`showRewarded`), pubblicità tra i round dell'Arena (`showInterstitial`) e salvataggi tramite `bridge.storage` (con copia in `localStorage`). La configurazione è in `platform/playgama/playgama-bridge-config.json` e finisce accanto a `index.html`. Il codice è in `src/systems/PlaygamaPlatform.js`.
+
 ## Architettura
 
 | File | Ruolo |

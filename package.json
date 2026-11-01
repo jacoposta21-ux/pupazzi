@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "build:cheats": "vite build --mode cheats"
+    "build:cheats": "vite build --mode cheats",
+    "build:playgama": "vite build --mode playgama"
   },
   "repository": {
     "type": "git",
