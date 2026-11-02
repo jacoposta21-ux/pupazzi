@@ -32,7 +32,7 @@ export function createPlaygama(loadScript, safe) {
     onAdStart: null,
     onAdEnd: null,
     // ad breaks at every natural pause and every arena round: the Bridge spaces them out
-    // (minimumDelayBetweenInterstitial in playgama-bridge-config.json) and fails the others at once
+    // (playgama-bridge-config.json: none in the first 90 s, then at most one every 3 minutes) and fails the others at once
     breakOnResume: true,
     arenaBreakEvery: 1,
 

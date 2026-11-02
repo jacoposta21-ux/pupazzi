@@ -609,14 +609,12 @@ export class GameManager {
     this.resetWorld();
     this.loadWorld();
     this.startPlaying();
-    if (!Platform.autoStart) this.adBreak();
   }
 
   continueGame() {
     // the menu already built the saved factory
     this.plushies.clear();
     this.startPlaying();
-    if (!Platform.autoStart) this.adBreak();
   }
 
   // Keeps cash and nuggets topped up without touching lifetime earnings (level / goal stay honest).
@@ -861,8 +859,8 @@ export class GameManager {
     this.resume();
   }
 
-  // Ad break at a natural pause (back from the pause menu or the shop, starting a game, entering or
-  // leaving the arena). Only on portals that pace ads themselves (Poki, Playgama: at most one a minute);
+  // Ad break at a natural pause (back from the pause menu or the shop, entering or leaving the arena).
+  // Only on portals that pace ads themselves (Poki; Playgama: none in the first 90 s, then one every 3 min);
   // the game is frozen while it runs.
   async adBreak() {
     if (!Platform.breakOnResume || !Platform.hasAds || this.inAdBreak) return;
