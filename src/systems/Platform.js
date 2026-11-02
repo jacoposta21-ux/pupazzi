@@ -118,7 +118,7 @@ const base = PORTAL === 'playgama' ? createPlaygama(loadScript, safe) : PORTAL =
 let playing = false;
 let adActive = false;
 const baseAd = base.ad.bind(base);
-base.breakOnResume ??= false; // ad break when leaving the pause menu (Poki)
+base.breakOnResume ??= false; // ad breaks at natural pauses: pause menu, shop, arena (Poki, Playgama)
 base.arenaBreakEvery ??= 7; // arena ad break every N rounds
 base.autoStart ??= false; // skip the main menu (Poki: players go straight into gameplay)
 base.silentAds ??= false; // no custom "video failed" messages (Poki)

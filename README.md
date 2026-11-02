@@ -68,7 +68,7 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 1. Esegui `npm run build:playgama` (output in `dist-playgama/`).
 2. Crea uno zip del contenuto di `dist-playgama/` e caricalo su Playgama.
 
-Questa build usa il **Playgama Bridge SDK** (caricato dal CDN `bridge.playgama.com`, che scarica solo l'adattatore del portale su cui gira) al posto dell'SDK di CrazyGames: `game_ready`, `gameplay_started/stopped`, video con premio (`showRewarded`), pubblicità tra i round dell'Arena (`showInterstitial`) e salvataggi tramite `bridge.storage` (con copia in `localStorage`). La configurazione è in `platform/playgama/playgama-bridge-config.json` e finisce accanto a `index.html`. Il codice è in `src/systems/PlaygamaPlatform.js`.
+Questa build usa il **Playgama Bridge SDK** (caricato dal CDN `bridge.playgama.com`, che scarica solo l'adattatore del portale su cui gira) al posto dell'SDK di CrazyGames: `game_ready`, `gameplay_started/stopped`, video con premio (`showRewarded`), pubblicità tra i round dell'Arena (`showInterstitial`) e salvataggi tramite `bridge.storage` (con copia in `localStorage`). Le pause pubblicitarie vengono chieste a ogni pausa naturale (inizio partita, chiusura del negozio o del menu di pausa, entrata e uscita dall'Arena, inizio di ogni round dell'Arena): è il Bridge a distanziarle, al massimo una ogni 60 s, e quelle troppo ravvicinate vengono saltate subito. La configurazione è in `platform/playgama/playgama-bridge-config.json` e finisce accanto a `index.html`. Il codice è in `src/systems/PlaygamaPlatform.js`.
 
 ## Pubblicazione su Poki
 

@@ -609,12 +609,14 @@ export class GameManager {
     this.resetWorld();
     this.loadWorld();
     this.startPlaying();
+    if (!Platform.autoStart) this.adBreak();
   }
 
   continueGame() {
     // the menu already built the saved factory
     this.plushies.clear();
     this.startPlaying();
+    if (!Platform.autoStart) this.adBreak();
   }
 
   // Keeps cash and nuggets topped up without touching lifetime earnings (level / goal stay honest).
@@ -678,7 +680,8 @@ export class GameManager {
     // jump straight into placing what was just bought
     if (this.lastBought && this.data.inventory[this.lastBought] > 0 && !this.build.active) this.build.enter(this.lastBought);
     this.lastBought = null;
-    this.resume();
+    // back to work: a natural ad break (Poki / Playgama decide whether one actually plays)
+    this.adBreak().then(() => this.resume());
   }
 
   onTutorialDone() {
@@ -773,6 +776,7 @@ export class GameManager {
     this.arena.open();
     this.ui.showGameplay();
     Audio.play('fanfare');
+    this.adBreak();
   }
 
   // Tear the arena down and bring the factory back (without reloading it).
@@ -807,7 +811,7 @@ export class GameManager {
     if (!this.settings.tutorialSeen) this.tutorial.start();
     this.ui.shownCash = this.data.cash;
     this.ui.showGameplay();
-    this.resume();
+    this.adBreak().then(() => this.resume());
   }
 
   showArenaOver(info) {
@@ -847,18 +851,24 @@ export class GameManager {
   get isActivelyPlaying() {
     return (
       this.state === 'playing' && !this.paused && !this.shopOpen && !this.ui.victoryOpen && !this.ui.arenaOverOpen &&
-      !(this.mode === 'arena' && (this.arena.adPlaying || this.arena.phase === 'over'))
+      !this.inAdBreak && !(this.mode === 'arena' && (this.arena.adPlaying || this.arena.phase === 'over'))
     );
   }
 
   // Leaving the pause menu: on Poki that's the moment for an ad break (Poki decides if one plays).
   async resumeFromPause() {
-    if (Platform.breakOnResume && this.everPlayed && !this.resumingAd) {
-      this.resumingAd = true;
-      await Platform.ad('midgame');
-      this.resumingAd = false;
-    }
+    if (this.everPlayed) await this.adBreak();
     this.resume();
+  }
+
+  // Ad break at a natural pause (back from the pause menu or the shop, starting a game, entering or
+  // leaving the arena). Only on portals that pace ads themselves (Poki, Playgama: at most one a minute);
+  // the game is frozen while it runs.
+  async adBreak() {
+    if (!Platform.breakOnResume || !Platform.hasAds || this.inAdBreak) return;
+    this.inAdBreak = true;
+    await Platform.ad('midgame');
+    this.inAdBreak = false;
   }
 
   resume() {
@@ -899,7 +909,7 @@ export class GameManager {
     if (active) this.everPlayed = true;
     Platform.setGameplay(active);
     if (this.state === 'menu') this.updateMenu(dt);
-    else if (this.state === 'playing' && !this.paused) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
+    else if (this.state === 'playing' && !this.paused && !this.inAdBreak) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
     else if (this.state === 'playing' && this.mode === 'arena' && this.shopOpen) {
       this.arena.tickShop(dt);
       this.ui.updateShopTimer();
