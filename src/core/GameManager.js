@@ -151,6 +151,12 @@ export class GameManager {
 
     this.save = Platform.load(SAVE_KEY);
     this.toMenu();
+    if (Platform.autoStart) {
+      // straight into the game; it waits for the player's first click / tap
+      this.autoStarted = true;
+      if (this.save) this.continueGame();
+      else this.newGame();
+    }
     Platform.loadingStop();
     this.ui.hideLoading();
     this.renderer.setAnimationLoop(() => this.frame());
@@ -495,7 +501,6 @@ export class GameManager {
 
   toMenu() {
     if (this.state === 'playing') {
-      Platform.gameplayStop();
       this.persist();
     }
     if (this.mode === 'arena') this.closeArenaWorld();
@@ -632,8 +637,12 @@ export class GameManager {
     this.player.setViewmodelVisible(true);
     this.state = 'playing';
     this.ui.showGameplay();
-    Platform.gameplayStart();
-    if (this.isTouch) this.paused = false;
+    if (this.isTouch && !this.autoStarted) this.paused = false;
+    else if (this.isTouch) {
+      // auto-started: gameplay begins on the first tap
+      this.paused = true;
+      this.ui.showPause(true);
+    }
     else {
       this.paused = !this.input.locked;
       this.input.requestLock();
@@ -834,6 +843,24 @@ export class GameManager {
     this.ui.showPause(true);
   }
 
+  // Is the player in control right now? (drives the portal's gameplay start/stop events)
+  get isActivelyPlaying() {
+    return (
+      this.state === 'playing' && !this.paused && !this.shopOpen && !this.ui.victoryOpen && !this.ui.arenaOverOpen &&
+      !(this.mode === 'arena' && (this.arena.adPlaying || this.arena.phase === 'over'))
+    );
+  }
+
+  // Leaving the pause menu: on Poki that's the moment for an ad break (Poki decides if one plays).
+  async resumeFromPause() {
+    if (Platform.breakOnResume && this.everPlayed && !this.resumingAd) {
+      this.resumingAd = true;
+      await Platform.ad('midgame');
+      this.resumingAd = false;
+    }
+    this.resume();
+  }
+
   resume() {
     if (this.state !== 'playing') return;
     if (this.isTouch) {
@@ -867,6 +894,10 @@ export class GameManager {
     const dt = Math.min(raw, 0.05);
     this.time += dt;
     if (this.state === 'playing' && !this.paused) this.checkPerformance(raw);
+    // the portal SDK is told exactly when the player is actually playing
+    const active = this.isActivelyPlaying;
+    if (active) this.everPlayed = true;
+    Platform.setGameplay(active);
     if (this.state === 'menu') this.updateMenu(dt);
     else if (this.state === 'playing' && !this.paused) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
     else if (this.state === 'playing' && this.mode === 'arena' && this.shopOpen) {

@@ -34,7 +34,7 @@ export class UI {
       });
     click('btn-new', () => this.onNewGame());
     click('btn-continue', () => game.continueGame());
-    click('btn-resume', () => game.resume());
+    click('btn-resume', () => game.resumeFromPause());
     click('btn-quit', () => game.toMenu());
     click('btn-close-shop', () => game.closeShop());
     click('btn-victory', () => game.closeVictory());
@@ -75,7 +75,7 @@ export class UI {
     });
     // Clicking anywhere on the pause backdrop also resumes (desktop pointer lock needs a click).
     $('pause').addEventListener('click', (e) => {
-      if (e.target.id === 'pause') game.resume();
+      if (e.target.id === 'pause') game.resumeFromPause();
     });
     addEventListener('keydown', (e) => {
       if (game.shopOpen && (e.code === 'Escape' || e.code === 'KeyE')) game.closeShop();
@@ -582,7 +582,7 @@ export class UI {
       }
     } else {
       // Bonus: rewarded ads only — a nugget, or cash scaled to the factory level
-      note(Platform.canRewarded ? 'bonusNote' : 'bonusUnavailable');
+      note(Platform.canRewarded || Platform.silentAds ? 'bonusNote' : 'bonusUnavailable');
       const offers = [
         { kind: 'nugget', title: `💎 ${t('ad_nugget', { n: AD_NUGGETS })}`, desc: t('adD_nugget') },
         { kind: 'cash', title: `💰 ${t('ad_cash', { v: this.money(adCashReward(g.level)) })}`, desc: t('adD_cash') },
@@ -595,7 +595,7 @@ export class UI {
           html: `
             <div class="name">${o.title}</div>
             <div class="desc">${o.desc}</div>
-            <div class="row"><span></span><span class="cost">${wait > 0 ? t('adWait', { s: wait }) : '📺 ' + t('watchAd')}</span></div>`,
+            <div class="row"><span></span><span class="cost">${wait > 0 ? t('adWait', { s: wait }) : '🎬 ' + t('watchAd')}</span></div>`,
           onClick: async () => {
             const ok = await g.watchAd(o.kind);
             if (ok) this.toast('adThanks');

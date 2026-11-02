@@ -39,7 +39,7 @@ Un minigioco che si avvia dalla **console arcade** nell'angolo in fondo a sinist
   - Robot e trappole, piazzati con B come in fabbrica: Sparabot, **Bonkbot** (robottino col martello che insegue i pupazzi vicini alla sua base), **Pozza di colla** (rallenta), **Trappola a molla** (rispedisce il pupazzo verso la sua porta), **Mina di coriandoli** (monouso, ad area).
 - Pupazzi nuovi: **Petardo** (corre ed esplode sull'Imbottitrice; se lo colpisci prima, esplode tra i suoi amici) e **Orsone Bullo** (grosso, lento, picchia forte). Ogni tanto passa un **Orsetto d'Oro** che non attacca e vale 100 monete se lo prendi prima che scappi.
 - **Boss ogni 5 round**: Re Orsetto, Regina Matrioska (si divide in Matrioske) e Cavaliere Gigante. Non si possono abbattere con un colpo solo. Ogni boss sconfitto dà **1 pepita d'oro** da spendere nella modalità classica.
-- **Pausa pubblicitaria** breve ogni 7 round, durante la pausa tra i round.
+- **Pausa pubblicitaria** breve ogni 7 round, all'inizio del round successivo (su Poki a ogni round, con la frequenza decisa da Poki).
 - Quando si perde: un **video facoltativo** fa rigiocare il round perso con l'Imbottitrice riparata (tenendo armi, monete e difese). In alternativa si ricomincia dal round 1 o si torna in fabbrica.
 - Il **record** (round più alto raggiunto) resta salvato e si vede sulla console.
 
@@ -69,6 +69,20 @@ Fuori da CrazyGames il gioco funziona lo stesso: niente annunci e salvataggio in
 2. Crea uno zip del contenuto di `dist-playgama/` e caricalo su Playgama.
 
 Questa build usa il **Playgama Bridge SDK** (caricato dal CDN `bridge.playgama.com`, che scarica solo l'adattatore del portale su cui gira) al posto dell'SDK di CrazyGames: `game_ready`, `gameplay_started/stopped`, video con premio (`showRewarded`), pubblicità tra i round dell'Arena (`showInterstitial`) e salvataggi tramite `bridge.storage` (con copia in `localStorage`). La configurazione è in `platform/playgama/playgama-bridge-config.json` e finisce accanto a `index.html`. Il codice è in `src/systems/PlaygamaPlatform.js`.
+
+## Pubblicazione su Poki
+
+1. Esegui `npm run build:poki` (output in `dist-poki/`) e crea uno zip del suo contenuto.
+2. Il gioco va accettato su Poki for Developers (accesso limitato): poi si carica dal loro pannello.
+
+Questa build usa il **Poki SDK** (`game-cdn.poki.com`, l'unica richiesta esterna: font e risorse sono tutti nel pacchetto) e segue i loro requisiti:
+- si entra subito nel gioco, senza menu iniziale: si parte al primo clic o tocco;
+- `gameplayStart` / `gameplayStop` seguono lo stato reale del gioco (pausa, negozio, schermate di fine), mai due volte di fila e mai durante una pubblicità (vale per tutti i portali);
+- `commercialBreak()` solo tornando in gioco: uscendo dal menu di pausa e all'inizio di ogni round dell'Arena (la frequenza la decide Poki);
+- `rewardedBreak()` per i video con premio, con l'icona 🎬, mai verdi e con l'alternativa senza video sopra; nessun messaggio sull'ad blocker;
+- salvataggi in `localStorage` protetti per la navigazione in incognito; la rotella del mouse non fa scorrere la pagina che ospita il gioco.
+
+Il codice è in `src/systems/PokiPlatform.js`.
 
 ## Architettura
 

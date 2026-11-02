@@ -120,6 +120,11 @@ export class Arena {
     const game = this.game;
     if (!retry) this.round++;
     const r = this.round;
+    // ad break on the way back into the action (every 7 rounds; every round on Poki, which sets its own pace)
+    if (!retry && r > 1 && (r - 1) % Platform.arenaBreakEvery === 0 && Platform.hasAds) {
+      this.adPlaying = true;
+      Platform.ad('midgame').finally(() => (this.adPlaying = false));
+    }
     this.phase = 'round';
     this.roundTime = 0;
     this.toSpawn = ARENA.count(r);
@@ -146,11 +151,6 @@ export class Arena {
     this.phase = 'break';
     this.timer = ARENA.breakTime;
     game.player.refill();
-    // a short ad break every few rounds, during the pause
-    if (this.round % ARENA.adEvery === 0 && Platform.hasAds) {
-      this.adPlaying = true;
-      Platform.ad('midgame').finally(() => (this.adPlaying = false));
-    }
   }
 
   gameOver() {
@@ -173,7 +173,7 @@ export class Arena {
     const game = this.game;
     const ok = CHEATS || (await Platform.ad('rewarded'));
     if (!ok) {
-      game.ui.toast('adFailed');
+      if (!Platform.silentAds) game.ui.toast('adFailed');
       return false;
     }
     for (const p of [...game.plushies.list]) game.plushies.remove(p);

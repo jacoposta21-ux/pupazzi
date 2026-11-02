@@ -1,9 +1,11 @@
 // Portal SDK wrapper. The build picks the portal (VITE_PLATFORM):
 //  - default: CrazyGames HTML5 SDK v3
 //  - 'playgama': Playgama Bridge (npm run build:playgama)
+//  - 'poki': Poki SDK (npm run build:poki)
 // Everything degrades gracefully when no SDK is available (local dev, other portals):
 // ads resolve to false, saves use localStorage.
 import { createPlaygama } from './PlaygamaPlatform.js';
+import { createPoki } from './PokiPlatform.js';
 
 const SDK_URL = 'https://sdk.crazygames.com/crazygames-sdk-v3.js';
 const PORTAL = import.meta.env.VITE_PLATFORM || 'crazygames';
@@ -108,4 +110,31 @@ const CrazyPlatform = {
   },
 };
 
-export const Platform = PORTAL === 'playgama' ? createPlaygama(loadScript, safe) : CrazyPlatform;
+const base = PORTAL === 'playgama' ? createPlaygama(loadScript, safe) : PORTAL === 'poki' ? createPoki(loadScript, safe) : CrazyPlatform;
+
+// Shared on top of every portal:
+// - gameplay start/stop follow the game's real state, never fire twice in a row and never during an ad;
+// - an ad first stops gameplay, and nothing is reported while it plays.
+let playing = false;
+let adActive = false;
+const baseAd = base.ad.bind(base);
+base.breakOnResume ??= false; // ad break when leaving the pause menu (Poki)
+base.arenaBreakEvery ??= 7; // arena ad break every N rounds
+base.autoStart ??= false; // skip the main menu (Poki: players go straight into gameplay)
+base.silentAds ??= false; // no custom "video failed" messages (Poki)
+base.setGameplay = (on) => {
+  if (adActive || on === playing) return;
+  playing = on;
+  if (on) base.gameplayStart();
+  else base.gameplayStop();
+};
+base.ad = (type) => {
+  if (playing) {
+    playing = false;
+    base.gameplayStop();
+  }
+  adActive = true;
+  return baseAd(type).finally(() => (adActive = false));
+};
+
+export const Platform = base;

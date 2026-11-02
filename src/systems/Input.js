@@ -44,6 +44,8 @@ export class Input {
       { passive: true },
     );
     addEventListener('contextmenu', (e) => e.preventDefault());
+    // the game never scrolls the page it is embedded in
+    this.canvas.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
       if (!this.locked) this.mouse.fill(false);
