@@ -342,3 +342,4 @@ body.arena .tabs { display: none; }
 body.arena .no-arena { display: none; }
 html, body { overscroll-behavior: none; }
 .panel { overscroll-behavior: contain; }
+.signed-in { margin: 0; font-size: 14px; color: var(--mint); }

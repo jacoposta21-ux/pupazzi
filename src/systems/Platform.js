@@ -121,7 +121,10 @@ const baseAd = base.ad.bind(base);
 base.breakOnResume ??= false; // ad breaks at natural pauses: pause menu, shop, arena (Poki, Playgama)
 base.arenaBreakEvery ??= 7; // arena ad break every N rounds
 base.autoStart ??= false; // skip the main menu (Poki: players go straight into gameplay)
-base.silentAds ??= false; // no custom "video failed" messages (Poki)
+base.silentAds ??= false;
+base.paused ??= false; // portal-imposed pause / mute (Playgama)
+base.audioEnabled ??= true;
+base.canSignIn ??= false; // portal account sign-in (Playgama) // no custom "video failed" messages (Poki)
 base.setGameplay = (on) => {
   if (adActive || on === playing) return;
   playing = on;

@@ -7,12 +7,13 @@ let noiseBuffer = null;
 let sfxMuted = false;
 let musicMuted = false;
 let adMuted = false;
+let platformMuted = false; // the portal asked for silence (e.g. its own overlays or a muted page)
 
 const MUSIC_VOL = 0.22;
 
 function applyVolume() {
   if (!master) return;
-  master.gain.value = adMuted ? 0 : 0.5;
+  master.gain.value = adMuted || platformMuted ? 0 : 0.5;
   sfxBus.gain.value = sfxMuted ? 0 : 1;
   musicBus.gain.setTargetAtTime(musicMuted ? 0 : MUSIC_VOL * Music.duck, ctx.currentTime, 0.1);
 }
@@ -285,6 +286,10 @@ export const Audio = {
   get musicMuted() {
     return musicMuted;
   },
+  setPlatformMuted(m) {
+    platformMuted = m;
+    applyVolume();
+  },
   setAdMuted(m) {
     adMuted = m;
     applyVolume();
@@ -296,7 +301,7 @@ export const Audio = {
     applyVolume();
   },
   play(name) {
-    if (!ctx || sfxMuted || adMuted) return;
+    if (!ctx || sfxMuted || adMuted || platformMuted) return;
     SFX[name]?.();
   },
 };

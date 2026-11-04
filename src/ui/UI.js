@@ -40,6 +40,14 @@ export class UI {
     click('btn-victory', () => game.closeVictory());
     click('btn-touch-pause', () => game.pause());
     click('btn-leave-arena', () => game.exitArena());
+    document.querySelectorAll('.btn-signin').forEach((el) =>
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        Audio.unlock();
+        Audio.play('click');
+        game.signIn();
+      }),
+    );
     click('btn-arena-retry', () => game.arenaRetry());
     click('btn-arena-restart', () => game.arenaRestart());
     click('btn-arena-leave', () => game.exitArena());
@@ -128,6 +136,7 @@ export class UI {
   showMenu(save) {
     for (const id of ['hud', 'pause', 'shop-screen', 'victory', 'touch-ui']) this.show(id, false);
     this.show('menu');
+    this.refreshSignIn();
     this.confirmNew = false;
     const btnNew = $('btn-new');
     btnNew.textContent = t('newGame');
@@ -142,6 +151,20 @@ export class UI {
     btnNew.classList.toggle('primary', !has);
   }
 
+  // Portal sign-in button (only where the portal supports accounts), or the signed-in player's name.
+  refreshSignIn() {
+    const can = Platform.canSignIn;
+    const name = Platform.playerName;
+    document.querySelectorAll('.btn-signin').forEach((el) => {
+      el.classList.toggle('hidden', !can);
+      el.textContent = t('signIn');
+    });
+    document.querySelectorAll('.signed-in').forEach((el) => {
+      el.classList.toggle('hidden', can || name == null);
+      el.textContent = t('signedIn', { n: name || t('player') });
+    });
+  }
+
   showGameplay() {
     for (const id of ['menu', 'pause', 'shop-screen', 'victory']) this.show(id, false);
     this.show('hud');
@@ -151,6 +174,7 @@ export class UI {
 
   showPause(v) {
     this.show('pause', v);
+    if (v) this.refreshSignIn();
   }
 
   showShop(v) {

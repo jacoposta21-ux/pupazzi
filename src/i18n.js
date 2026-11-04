@@ -188,6 +188,9 @@ const STR = {
     // ---- Arena ----
     consoleHint: '{key}Play ARENA · record: round {r}',
     arenaTitle: 'ARENA',
+    signIn: '👤 Sign in to save your progress to your account',
+    signedIn: '👤 Signed in as {n}',
+    player: 'player',
     arenaWelcome: 'ARENA!',
     arenaWelcomeSub: 'Defend the Stuffer from the plushies coming through the 4 gates',
     roundN: 'Round {n}',
@@ -433,6 +436,9 @@ const STR = {
     u_overtime: 'Straordinari', d_overtime: '+15 s per giornata',
     // ---- Arena ----
     consoleHint: '{key}Gioca all’ARENA · record: round {r}',
+    signIn: '👤 Accedi per salvare i progressi nel tuo account',
+    signedIn: '👤 Accesso effettuato come {n}',
+    player: 'giocatore',
     arenaTitle: 'ARENA',
     arenaWelcome: 'ARENA!',
     arenaWelcomeSub: 'Difendi l’Imbottitrice dai pupazzi che entrano dalle 4 porte',

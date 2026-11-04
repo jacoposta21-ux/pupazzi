@@ -28,6 +28,10 @@ export function createPlaygama(loadScript, safe) {
 
   const P = {
     env: 'playgama',
+    paused: false,
+    audioEnabled: true,
+    onPauseChange: null,
+    onAudioChange: null,
     adblock: false,
     onAdStart: null,
     onAdEnd: null,
@@ -43,15 +47,44 @@ export function createPlaygama(loadScript, safe) {
         await window.bridge.initialize();
         bridge = window.bridge;
         const E = bridge.EVENT_NAME;
-        // the portal can mute or pause the game (e.g. its own ads, tab switches)
-        bridge.platform.on?.(E.AUDIO_STATE_CHANGED, (on) => (on ? P.onAdEnd?.() : P.onAdStart?.()));
-        bridge.platform.on?.(E.PAUSE_STATE_CHANGED, (paused) => (paused ? P.onAdStart?.() : P.onAdEnd?.()));
+        // the portal can mute or pause the game (its overlays, ads, a hidden tab): the current state is
+        // read now, before any sound plays, and every change is passed on to the game
+        P.paused = !!bridge.platform.isPaused;
+        P.audioEnabled = bridge.platform.isAudioEnabled !== false;
+        bridge.platform.on(E.PAUSE_STATE_CHANGED, (paused) => {
+          P.paused = !!paused;
+          P.onPauseChange?.(P.paused);
+        });
+        bridge.platform.on(E.AUDIO_STATE_CHANGED, (on) => {
+          P.audioEnabled = on !== false;
+          P.onAudioChange?.(P.audioEnabled);
+        });
         const values = await bridge.storage.get(KEYS, false).catch(() => null);
         if (Array.isArray(values)) KEYS.forEach((k, i) => values[i] != null && (cache[k] = values[i]));
       } catch (e) {
         console.warn('[Platform] Playgama Bridge init failed', e);
         bridge = null;
       }
+    },
+
+    // ---- Player sign-in (the portal's own account) ----
+    get canSignIn() {
+      return !!bridge?.player.isAuthorizationSupported && !bridge.player.isAuthorized;
+    },
+    get playerName() {
+      return bridge?.player.isAuthorized ? bridge.player.name || '' : null;
+    },
+    // Signs in, then reloads the saves (they may now come from the player's account).
+    async signIn() {
+      if (!bridge) return false;
+      try {
+        await bridge.player.authorize();
+      } catch {
+        return false;
+      }
+      const values = await bridge.storage.get(KEYS, false).catch(() => null);
+      if (Array.isArray(values)) KEYS.forEach((k, i) => values[i] != null && (cache[k] = values[i]));
+      return true;
     },
 
     get hasAds() {

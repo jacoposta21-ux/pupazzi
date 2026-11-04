@@ -103,6 +103,14 @@ export class GameManager {
     Platform.loadingStart();
     Platform.onAdStart = () => Audio.setAdMuted(true);
     Platform.onAdEnd = () => Audio.setAdMuted(false);
+    // the portal can pause or mute the game at any time (its overlays, a hidden tab...); start from its state
+    Audio.setPlatformMuted(!Platform.audioEnabled);
+    this.platformPaused = Platform.paused;
+    Platform.onAudioChange = (on) => Audio.setPlatformMuted(!on);
+    Platform.onPauseChange = (paused) => {
+      this.platformPaused = paused;
+      if (paused) this.input.mouse.fill(false);
+    };
 
     this.colliders = new Colliders();
     this.nav = new Nav(this);
@@ -650,6 +658,15 @@ export class GameManager {
     }
   }
 
+  // Sign in with the portal's account (Playgama): progress then follows the player's account.
+  async signIn() {
+    if (!(await Platform.signIn())) return;
+    Audio.play('fanfare');
+    if (this.state === 'menu') this.toMenu(); // reload the save from the account
+    else this.persist(); // keep the current progress in the account
+    this.ui.refreshSignIn();
+  }
+
   // ---------- Shop terminal ----------
 
   openShop() {
@@ -849,7 +866,7 @@ export class GameManager {
   get isActivelyPlaying() {
     return (
       this.state === 'playing' && !this.paused && !this.shopOpen && !this.ui.victoryOpen && !this.ui.arenaOverOpen &&
-      !this.inAdBreak && !(this.mode === 'arena' && (this.arena.adPlaying || this.arena.phase === 'over'))
+      !this.inAdBreak && !this.platformPaused && !(this.mode === 'arena' && (this.arena.adPlaying || this.arena.phase === 'over'))
     );
   }
 
@@ -907,7 +924,7 @@ export class GameManager {
     if (active) this.everPlayed = true;
     Platform.setGameplay(active);
     if (this.state === 'menu') this.updateMenu(dt);
-    else if (this.state === 'playing' && !this.paused && !this.inAdBreak) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
+    else if (this.state === 'playing' && !this.paused && !this.inAdBreak && !this.platformPaused) this.mode === 'arena' ? this.updateArena(dt) : this.updatePlaying(dt);
     else if (this.state === 'playing' && this.mode === 'arena' && this.shopOpen) {
       this.arena.tickShop(dt);
       this.ui.updateShopTimer();
