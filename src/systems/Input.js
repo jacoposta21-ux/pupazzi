@@ -71,7 +71,8 @@ export class Input {
     const joyZone = document.getElementById('joy-zone');
     const joyBase = document.getElementById('joy-base');
     const knob = document.getElementById('joy-knob');
-    const R = 55;
+    // joystick size follows the CSS (it scales with the screen)
+    const radius = () => joyBase.offsetWidth * 0.46;
     let joyId = null, ox = 0, oy = 0;
 
     joyZone.addEventListener('pointerdown', (e) => {
@@ -79,13 +80,15 @@ export class Input {
       const rect = joyZone.getBoundingClientRect();
       ox = e.clientX;
       oy = e.clientY;
-      joyBase.style.left = `${e.clientX - rect.left - 60}px`;
-      joyBase.style.top = `${e.clientY - rect.top - 60}px`;
+      const half = joyBase.offsetWidth / 2;
+      joyBase.style.left = `${e.clientX - rect.left - half}px`;
+      joyBase.style.top = `${e.clientY - rect.top - half}px`;
       joyBase.style.bottom = 'auto';
       joyZone.setPointerCapture(e.pointerId);
     });
     joyZone.addEventListener('pointermove', (e) => {
       if (e.pointerId !== joyId) return;
+      const R = radius();
       let dx = e.clientX - ox, dy = e.clientY - oy;
       const len = Math.hypot(dx, dy);
       if (len > R) {
