@@ -23,10 +23,15 @@ const MASTER_VOL = 0.85;
 const MUSIC_VOL = 0.22;
 const SFX_VOL = 0.9;
 
-function applyVolume() {
+function applyVolume(instant = false) {
   if (!master) return;
   const t = ctx.currentTime;
-  master.gain.setTargetAtTime(adMuted || platformMuted ? 0 : MASTER_VOL, t, 0.02);
+  const silent = adMuted || platformMuted;
+  if (instant) master.gain.value = silent ? 0 : MASTER_VOL;
+  else master.gain.setTargetAtTime(silent ? 0 : MASTER_VOL, t, 0.02);
+  // when the platform or an ad wants silence, the whole audio engine is suspended (nothing plays at all)
+  if (silent && ctx.state === 'running') ctx.suspend().catch(() => {});
+  else if (!silent && ctx.state === 'suspended') ctx.resume().catch(() => {});
   sfxBus.gain.setTargetAtTime(sfxMuted ? 0 : SFX_VOL, t, 0.02);
   musicBus.gain.setTargetAtTime(musicMuted ? 0 : MUSIC_VOL * Music.duck, t, 0.12);
 }
@@ -581,10 +586,17 @@ export const Audio = {
       musicBus.connect(master);
       master.connect(comp);
       comp.connect(ctx.destination);
-      applyVolume();
+      applyVolume(true);
       Music.start();
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    // never wake the audio up while the platform (or an ad) keeps the game muted
+    if (ctx.state === 'suspended' && !adMuted && !platformMuted) ctx.resume();
+  },
+  get platformMuted() {
+    return platformMuted;
+  },
+  get engineState() {
+    return ctx ? ctx.state : 'none';
   },
   setMuted(m) {
     sfxMuted = m;
