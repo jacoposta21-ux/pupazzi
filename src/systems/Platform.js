@@ -46,6 +46,14 @@ const CrazyPlatform = {
       this.env = SDK.environment;
       if (this.env !== 'disabled') sdk = SDK;
       if (sdk) this.adblock = !!(await sdk.ad.hasAdblock());
+      // the portal's own "mute audio" setting: read it now, before any sound, and follow its changes
+      if (sdk?.game?.settings) {
+        this.audioEnabled = !sdk.game.settings.muteAudio;
+        sdk.game.addSettingsChangeListener?.((settings) => {
+          this.audioEnabled = !settings.muteAudio;
+          this.onAudioChange?.(this.audioEnabled);
+        });
+      }
     } catch (e) {
       console.warn('[Platform] SDK init failed', e);
     }
