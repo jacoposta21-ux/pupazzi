@@ -182,7 +182,8 @@ export class Stuffer {
           this.working.splice(i, 1);
           // a nugget inside the plushie ends up sealed (unseen) in the can
           const can = this.game.items.spawnCan(out, this.canValue(job.value), job.type, job.nugget);
-          if (stats.wrap) this.game.items.wrap(can); // Gift Wrapper upgrade: every can comes out wrapped
+          if (stats.wrap) this.game.items.wrap(can);
+          Audio.play('canOut'); // Gift Wrapper upgrade: every can comes out wrapped
           // with no belt below, the can tumbles out onto the floor in front of the machine
           if (!this.game.beltNet.under(out)) can.vel.set(this.out.x * 1.5 + (Math.random() - 0.5), 0, this.out.z * 1.5 + (Math.random() - 0.5));
           this.game.particles.burst(this.spoutPos, { count: 6, color: 0xffffff, speed: 1.2, size: 0.07, up: 1.5 });

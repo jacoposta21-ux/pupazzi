@@ -61,10 +61,11 @@ export class BuildMode {
     this.active = true;
     this.game.player.setViewmodelVisible(false);
     this.select(type && this.game.data.inventory[type] > 0 ? type : null);
-    Audio.play('swap');
+    Audio.play('buildOn');
   }
 
   exit() {
+    if (this.active) Audio.play('buildOff');
     this.active = false;
     this.setGhost(null);
     this.highlight(null);

@@ -45,6 +45,13 @@ Un minigioco che si avvia dalla **console arcade** nell'angolo in fondo a sinist
 
 Le monete, le armi e le difese valgono solo per la partita in corso; record, boss sconfitti e pepite finiscono nel salvataggio della fabbrica. Tutti i numeri (round, vita, danni, monete, prezzi) sono in `ARENA` e `ARENA_SHOP` in `src/data/config.js`.
 
+## Audio
+
+Tutto l'audio è sintetizzato in tempo reale con WebAudio (`src/systems/Audio.js`): niente file da scaricare.
+- **Colonna sonora a 4 brani** su un unico sequencer, con cambio sempre a inizio battuta: menu (calmo, Fa maggiore), fabbrica (allegro, Do maggiore), Arena (incalzante, La minore) e boss (pesante, Re minore). Durante negozio, pause tra i round e menu la musica passa a un arrangiamento più leggero (senza batteria e melodia) e si abbassa; alla sconfitta nell'Arena si ferma.
+- **Mixaggio**: bus separati per musica ed effetti, ciascuno col suo riverbero, compressore sul master, e un intervallo minimo tra due suoni uguali, così le scene affollate restano pulite. I livelli sono misurati con un render offline (vedi `__AudioDebug.measure` in sviluppo).
+- **Effetti per ogni azione**: armi, colpi e KO, pupazzi che scoppiano, monete, Imbottitrice e lattine, acquisti e vendite, modalità costruzione, apertura e chiusura di pausa e negozio, premio dei video, salita di livello, missioni, inizio e fine round, conto alla rovescia, allarme dell'Imbottitrice, boss, sconfitta e vittoria.
+
 ## Sviluppo
 
 ```bash

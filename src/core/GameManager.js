@@ -254,7 +254,7 @@ export class GameManager {
     if (v.nuggets) this.data.nuggets += v.nuggets;
     // the next one you buy costs what this one did
     if (type !== 'belt' && this.data.bought[type] > 0) this.data.bought[type]--;
-    Audio.play('cash');
+    Audio.play('sell');
     this.ui.toast('sold', { v: v.cash ? this.ui.money(v.cash) : `💎 ${v.nuggets}` });
   }
 
@@ -319,7 +319,7 @@ export class GameManager {
     if (L > this.level) {
       this.level = L;
       this.ui.toast('levelUp', { n: L });
-      Audio.play('fanfare');
+      Audio.play('levelUp');
       this.particles.burst(this.player.pos.clone().setY(2), { count: 30, color: 0xffd23f, speed: 3, size: 0.06, up: 3 });
     }
     if (!this.data.won && this.data.earned >= GOAL) {
@@ -444,13 +444,10 @@ export class GameManager {
     const ok = await Platform.ad('rewarded');
     if (!ok) return false;
     (this.adLast ??= {})[kind] = performance.now();
-    if (kind === 'cash') {
-      this.addEarnings(adCashReward(this.level));
-      Audio.play('cash');
-    } else {
-      this.addNuggets(AD_NUGGETS);
-      Audio.play('nugget');
-    }
+    // clear feedback for the reward
+    Audio.play('reward');
+    if (kind === 'cash') this.addEarnings(adCashReward(this.level));
+    else this.addNuggets(AD_NUGGETS);
     this.persist();
     return true;
   }
@@ -525,6 +522,7 @@ export class GameManager {
     this.loadWorld();
     for (let i = 0; i < 10; i++) this.plushies.spawnWandering(pickPlushieType(Math.max(3, this.level)), 1);
     this.ui.showMenu(this.save);
+    Audio.setTrack('menu');
     Audio.setMusicMood({ calm: true, duck: 1 });
   }
 
@@ -640,6 +638,7 @@ export class GameManager {
     this.player.respawn();
     this.player.refill();
     this.ui.shownCash = this.data.cash;
+    Audio.setTrack('factory');
     Audio.setMusicMood({ calm: false, duck: 1 });
     if (!this.settings.tutorialSeen) this.tutorial.start();
     this.player.setViewmodelVisible(true);
@@ -681,8 +680,8 @@ export class GameManager {
     this.paused = true;
     this.input.exitLock();
     this.ui.showShop(true);
-    Audio.play('swap');
-    Audio.setMusicMood({ duck: 0.6 });
+    Audio.play('uiOpen');
+    Audio.setMusicMood({ calm: true, duck: 0.75 });
     this.bus.emit('shopOpened');
   }
 
@@ -691,7 +690,9 @@ export class GameManager {
     this.shopOpen = false;
     this.ui.showShop(false);
     this.persist();
-    Audio.setMusicMood({ duck: 1 });
+    Audio.play('uiClose');
+    // the arena keeps its calm arrangement during the break; the round start brings the drums back
+    Audio.setMusicMood({ calm: this.mode === 'arena' ? this.arena.phase !== 'round' : false, duck: 1 });
     // jump straight into placing what was just bought
     if (this.lastBought && this.data.inventory[this.lastBought] > 0 && !this.build.active) this.build.enter(this.lastBought);
     this.lastBought = null;
@@ -709,7 +710,7 @@ export class GameManager {
   showVictory() {
     this.paused = true;
     this.input.exitLock();
-    Audio.play('fanfare');
+    Audio.play('victory');
     Platform.happytime();
     this.ui.showVictory();
   }
@@ -790,7 +791,7 @@ export class GameManager {
     document.body.classList.add('arena');
     this.arena.open();
     this.ui.showGameplay();
-    Audio.play('fanfare');
+    Audio.play('roundStart');
     this.adBreak();
   }
 
@@ -817,6 +818,8 @@ export class GameManager {
     if (this.mode !== 'arena') return;
     this.ui.hideArenaOver();
     this.closeArenaWorld();
+    Audio.setTrack('factory');
+    Audio.setMusicMood({ calm: false, duck: 1 });
     this.loadWorld();
     // standing in front of the console, looking into the factory
     const C = LAYOUT.console;
@@ -857,6 +860,7 @@ export class GameManager {
   pause() {
     if (this.state !== 'playing' || this.shopOpen) return;
     this.paused = true;
+    Audio.play('uiOpen');
     Audio.setMusicMood({ duck: 0.4 });
     this.input.exitLock();
     this.ui.showPause(true);
@@ -901,6 +905,7 @@ export class GameManager {
 
   onLockChange(locked) {
     if (this.state !== 'playing' || this.shopOpen || this.ui.victoryOpen || this.ui.arenaOverOpen) return;
+    if (locked && this.paused) Audio.play('uiClose');
     this.paused = !locked;
     this.ui.showPause(!locked);
     Audio.setMusicMood({ duck: locked ? 1 : 0.4 });

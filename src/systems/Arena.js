@@ -105,6 +105,8 @@ export class Arena {
     this.retried = false;
     this.phase = 'intro';
     this.timer = ARENA.introTime;
+    Audio.setTrack('arena');
+    Audio.setMusicMood({ calm: true, duck: 1 });
     game.player.respawn(ARENA_SPAWN, 0);
     game.player.carried.length = 0;
     game.player.weapons.current = 'blaster';
@@ -139,6 +141,7 @@ export class Arena {
     }
     game.ui.arenaBanner(this.bossPending ? 'bossRound' : 'roundN', this.bossPending ? 'bossRoundSub' : 'roundSub', { n: r });
     Audio.play(this.bossPending ? 'boss' : 'roundStart');
+    Audio.setTrack(this.bossPending ? 'boss' : 'arena');
     Audio.setMusicMood({ calm: false, duck: 1 });
   }
 
@@ -147,7 +150,10 @@ export class Arena {
     const bonus = ARENA.clearBonus(this.round);
     this.earn(bonus);
     game.ui.arenaBanner('roundClear', 'roundClearSub', { n: this.round, v: bonus });
-    Audio.play('fanfare');
+    Audio.play('roundClear');
+    // the break: calmer music, back from the boss track
+    Audio.setTrack('arena');
+    Audio.setMusicMood({ calm: true });
     this.phase = 'break';
     this.timer = ARENA.breakTime;
     game.player.refill();
@@ -160,6 +166,8 @@ export class Arena {
     for (let i = 0; i < 4; i++) game.particles.burst(at, { count: 30, color: COTTON[i % 3], speed: 6, size: 0.12, up: 5, life: 1.4, gravity: 4, soft: true });
     game.particles.burst(at, { count: 30, color: 0xff6b8b, speed: 5, size: 0.08, up: 4 });
     Audio.play('boom');
+    Audio.stopMusic();
+    setTimeout(() => Audio.play('gameOver'), 500);
     this.core.group.visible = false;
     const career = game.career;
     const record = this.round >= (career.arena.best || 0);
@@ -183,6 +191,9 @@ export class Arena {
     this.coreHp = this.coreMax;
     this.phase = 'retry';
     this.timer = ARENA.retryTime;
+    Audio.play('reward');
+    Audio.setTrack('arena');
+    Audio.setMusicMood({ calm: true, duck: 1 });
     game.player.refill();
     game.ui.arenaBanner('retryTitle', 'retrySub', { n: this.round });
     return true;
@@ -204,7 +215,10 @@ export class Arena {
     const game = this.game;
     this.animate(dt);
     if (this.phase === 'intro' || this.phase === 'break' || this.phase === 'retry') {
+      const before = Math.ceil(this.timer);
       this.timer -= dt;
+      // countdown ticks for the last 3 seconds
+      if (Math.ceil(this.timer) < before && before <= 3 && this.timer > 0) Audio.play('tick');
       if (input.readyPressed && this.phase !== 'retry') this.timer = 0;
       if (this.timer <= 0) this.startRound(this.phase === 'retry');
     } else if (this.phase === 'round') this.updateRound(dt);
@@ -392,6 +406,7 @@ export class Arena {
     if (this.coreHp <= this.coreMax * 0.25 && !this.warned) {
       this.warned = true;
       game.ui.toast('coreLow');
+      Audio.play('alarm');
     }
     if (this.coreHp > this.coreMax * 0.25) this.warned = false;
     if (this.coreHp <= 0) {
@@ -440,6 +455,7 @@ export class Arena {
     for (let i = 0; i < 3; i++) game.particles.burst(at, { count: Math.round(8 * s), color: COTTON[i], speed: 3 * s, size: 0.08 * Math.sqrt(s), up: 3, life: 1.1, gravity: 3, soft: true });
     game.particles.burst(at, { count: Math.round(6 * s), color: p.def.color, speed: 2.5 * s, size: 0.06, up: 2.5 });
     Audio.play('poof');
+    Audio.play('coin');
     const coins = ARENA.coins[p.type] ?? 10;
     this.earn(coins);
     this.kills++;

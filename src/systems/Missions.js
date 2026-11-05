@@ -60,7 +60,7 @@ export class Missions {
     if (m.nugget) game.addNuggets(1);
     game.data.totals.missions = (game.data.totals.missions || 0) + 1;
     game.ui.toast('missionDone', { v: game.ui.money(m.reward) + (m.nugget ? ' + 💎' : '') });
-    Audio.play('fanfare');
+    Audio.play('mission');
     Platform.happytime();
   }
 
